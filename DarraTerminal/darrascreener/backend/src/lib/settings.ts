@@ -1,0 +1,115 @@
+import { config } from "../config";
+import type {
+  BackendSettings,
+  RevivingCoinAlertSettings,
+  VolumeMilestoneSettings
+} from "../types/messages";
+
+export const defaultRevivingCoinAlertSettings: RevivingCoinAlertSettings = {
+  enabled: true,
+  scanIntervalMinutes: 5,
+  minCurrentQuoteVolume24h: 100_000_000,
+  liquidityLookbackDays: 30,
+  maxAverageDailyQuoteVolume: 10_000_000,
+  noSignalLookbackDays: 30,
+  useAverageVolumeCriterion: true,
+  useNoSignalCriterion: true,
+  requireAllDeadCriteria: false,
+  alertCooldownHours: 24,
+  soundEnabled: true,
+  soundRepeatSeconds: 10
+};
+
+export const defaultVolumeMilestoneSettings: VolumeMilestoneSettings = {
+  enabled: true,
+  minQuoteVolume24h: 100_000_000
+};
+
+const clampNumber = (value: unknown, min: number, max: number, fallback: number): number => {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(numericValue, min), max);
+};
+
+const normalizeBoolean = (value: unknown, fallback: boolean): boolean =>
+  typeof value === "boolean" ? value : fallback;
+
+export const normalizeRevivingCoinAlertSettings = (
+  value: Partial<RevivingCoinAlertSettings> | null | undefined,
+  base: RevivingCoinAlertSettings = defaultRevivingCoinAlertSettings
+): RevivingCoinAlertSettings => {
+  const next = value ?? {};
+
+  return {
+    enabled: normalizeBoolean(next.enabled, base.enabled),
+    scanIntervalMinutes: clampNumber(next.scanIntervalMinutes, 1, 240, base.scanIntervalMinutes),
+    minCurrentQuoteVolume24h: clampNumber(
+      next.minCurrentQuoteVolume24h,
+      1_000_000,
+      10_000_000_000,
+      base.minCurrentQuoteVolume24h
+    ),
+    liquidityLookbackDays: Math.round(
+      clampNumber(next.liquidityLookbackDays, 3, 120, base.liquidityLookbackDays)
+    ),
+    maxAverageDailyQuoteVolume: clampNumber(
+      next.maxAverageDailyQuoteVolume,
+      100_000,
+      1_000_000_000,
+      base.maxAverageDailyQuoteVolume
+    ),
+    noSignalLookbackDays: Math.round(
+      clampNumber(next.noSignalLookbackDays, 1, 180, base.noSignalLookbackDays)
+    ),
+    useAverageVolumeCriterion: normalizeBoolean(
+      next.useAverageVolumeCriterion,
+      base.useAverageVolumeCriterion
+    ),
+    useNoSignalCriterion: normalizeBoolean(next.useNoSignalCriterion, base.useNoSignalCriterion),
+    requireAllDeadCriteria: normalizeBoolean(next.requireAllDeadCriteria, base.requireAllDeadCriteria),
+    alertCooldownHours: clampNumber(next.alertCooldownHours, 1, 24 * 30, base.alertCooldownHours),
+    soundEnabled: normalizeBoolean(next.soundEnabled, base.soundEnabled),
+    soundRepeatSeconds: clampNumber(next.soundRepeatSeconds, 2, 120, base.soundRepeatSeconds)
+  };
+};
+
+export const normalizeVolumeMilestoneSettings = (
+  value: Partial<VolumeMilestoneSettings> | null | undefined,
+  base: VolumeMilestoneSettings = defaultVolumeMilestoneSettings
+): VolumeMilestoneSettings => {
+  const next = value ?? {};
+
+  return {
+    enabled: normalizeBoolean(next.enabled, base.enabled),
+    minQuoteVolume24h: clampNumber(
+      next.minQuoteVolume24h,
+      1_000_000,
+      10_000_000_000,
+      base.minQuoteVolume24h
+    )
+  };
+};
+
+export const createDefaultBackendSettings = (): BackendSettings => ({
+  focusUniverseSize: config.defaultFocusUniverseSize,
+  revivingCoins: defaultRevivingCoinAlertSettings,
+  volumeMilestones: defaultVolumeMilestoneSettings
+});
+
+export const normalizeBackendSettings = (
+  value: Partial<BackendSettings> | null | undefined,
+  base: BackendSettings = createDefaultBackendSettings()
+): BackendSettings => ({
+  focusUniverseSize: Math.round(
+    clampNumber(value?.focusUniverseSize, 12, 90, base.focusUniverseSize)
+  ),
+  revivingCoins: normalizeRevivingCoinAlertSettings(value?.revivingCoins, base.revivingCoins),
+  volumeMilestones: normalizeVolumeMilestoneSettings(
+    value?.volumeMilestones,
+    base.volumeMilestones
+  )
+});

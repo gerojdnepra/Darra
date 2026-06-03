@@ -1,0 +1,12 @@
+{
+  "name": "darra-terminal-source-recovery",
+  "private": true,
+  "version": "0.0.0-recovery",
+  "description": "Recovery scaffold for Darra Terminal source repository",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "describe": "echo Source recovery scaffold"
+  }
+}
