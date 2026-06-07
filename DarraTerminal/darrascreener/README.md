@@ -304,6 +304,21 @@ This section should describe the current checked state of the workspace, not ide
 - `desktop/scripts/package-folder.mjs` currently passes and writes `desktop/release/win-unpacked/Darra Terminal.exe`.
 - Some desktop-related files contain mojibake/corrupted Cyrillic text, especially in `frontend/десктопдаратерминал/*` and parts of `desktop/main.cjs`. It makes UI text edits riskier, but it is no longer blocking the desktop build.
 
+## Roadmap status
+
+### P1.5 Trader Workflow Simplification — 35%
+
+- **P1.5-A1 Desktop Preset / Window Registry Alignment — DONE**
+- **P1.5-A2 Signal Tape to Focus Workflow — DONE**
+  - Validation result: **PASS WITH RISKS** (read-only review of all 10 checks).
+  - Scope: only `frontend/components/scalp-station-app.tsx` changed.
+  - Frontend build (`npm run build`) passed (compile + type-check + lint).
+  - No backend, risk, Safe-To-Add, WebSocket contract, store, or terminal/desktop shell changes.
+  - Advisory risks (non-blocking):
+    - **R1:** Focusing a symbol overwrites `positionSizingSymbol` even if a different symbol is being typed in the sizing input (by design).
+    - **R2:** Entry price is pre-filled from the focused row's last price; only when the field is empty, and it does not weaken validation.
+    - **R3:** The `Focus:` indicator lives in the screener panel header, so it is hidden when that panel is collapsed.
+
 ## Verified Binance docs
 
 - [Exchange Information](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information)
