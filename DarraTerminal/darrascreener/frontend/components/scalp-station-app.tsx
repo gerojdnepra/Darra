@@ -1343,6 +1343,11 @@ export function ScalpStationApp({
     useState<PositionSizingResult | null>(null);
   const [positionSizingLoading, setPositionSizingLoading] = useState(false);
   const [positionSizingError, setPositionSizingError] = useState<string | null>(null);
+  const [focusedSymbol, setFocusedSymbol] = useState<string | null>(null);
+  const [focusedSymbolSource, setFocusedSymbolSource] =
+    useState<"signalTape" | "screener" | "volume" | null>(null);
+  const [focusHighlightAt, setFocusHighlightAt] = useState<number | null>(null);
+  const focusHighlightTimerRef = useRef<number | null>(null);
   const [draggedDashboardPanel, setDraggedDashboardPanel] =
     useState<DashboardPanelId | null>(null);
   const [dashboardDragOverPanel, setDashboardDragOverPanel] =
@@ -3343,6 +3348,10 @@ export function ScalpStationApp({
       if (signalBillboardTimerRef.current !== null) {
         window.clearTimeout(signalBillboardTimerRef.current);
       }
+
+      if (focusHighlightTimerRef.current !== null) {
+        window.clearTimeout(focusHighlightTimerRef.current);
+      }
     };
   }, []);
 
@@ -3741,6 +3750,44 @@ export function ScalpStationApp({
       setCopiedAlertId(null);
       copiedAlertTimerRef.current = null;
     }, 1_500);
+  };
+
+  const focusOnSymbol = (
+    symbol: string,
+    source: "signalTape" | "screener" | "volume"
+  ): void => {
+    const normalized = symbol.trim().toUpperCase();
+
+    if (!normalized) {
+      return;
+    }
+
+    setFocusedSymbol(normalized);
+    setFocusedSymbolSource(source);
+    setPositionSizingSymbol(normalized);
+
+    const matchedRow = frame?.rows?.find((row) => row.symbol === normalized) ?? null;
+
+    if (matchedRow && !positionSizingEntryPrice.trim() && matchedRow.lastPrice > 0) {
+      setPositionSizingEntryPrice(String(matchedRow.lastPrice));
+    }
+
+    setFocusHighlightAt(Date.now());
+
+    if (focusHighlightTimerRef.current !== null) {
+      window.clearTimeout(focusHighlightTimerRef.current);
+    }
+
+    focusHighlightTimerRef.current = window.setTimeout(() => {
+      setFocusHighlightAt(null);
+      focusHighlightTimerRef.current = null;
+    }, 1_500);
+
+    if (typeof document !== "undefined") {
+      document
+        .getElementById("position-sizing-calculator")
+        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   };
 
   const handleVolumeMilestoneClick = async (eventId: string, symbol: string) => {
@@ -4278,7 +4325,12 @@ export function ScalpStationApp({
             />
           </div>
 
-          <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div
+            id="position-sizing-calculator"
+            className={`mt-4 rounded-lg border bg-black/20 p-3 transition ${
+              focusHighlightAt ? "border-accent/60 ring-2 ring-accent/40" : "border-white/10"
+            }`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                 Position Sizing Calculator
@@ -7010,22 +7062,41 @@ export function ScalpStationApp({
       {!collapsedSections.alerts ? (
         <div className="scrollbar-thin mt-2 max-h-[360px] space-y-1.5 overflow-y-auto">
           {frame?.alerts?.length ? (
-            frame.alerts.map((alert) => (
-              <button
+            frame.alerts.map((alert) => {
+              const isFocusedAlert = focusedSymbol === alert.symbol;
+
+              return (
+              <div
                 key={alert.id}
-                type="button"
-                onClick={() => void handleAlertClick(alert)}
-                title={`Copy ${alert.symbol}`}
-                className={`rounded-md border px-2.5 py-2 text-xs ${
+                role="button"
+                tabIndex={0}
+                onClick={() => focusOnSymbol(alert.symbol, "signalTape")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    focusOnSymbol(alert.symbol, "signalTape");
+                  }
+                }}
+                title={`Focus ${alert.symbol}`}
+                className={`cursor-pointer rounded-md border px-2.5 py-2 text-xs ${
                   alert.severity === "critical"
                     ? "border-negative/35 bg-negative/10"
                     : alert.severity === "high"
                       ? "border-caution/35 bg-caution/10"
                       : "border-white/10 bg-white/5"
-                } w-full text-left transition hover:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/40`}
+                } w-full text-left transition hover:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/40 ${
+                  isFocusedAlert ? "ring-2 ring-accent/60" : ""
+                }`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium text-slate-100">{alert.symbol}</div>
+                  <div className="flex items-center gap-2 font-medium text-slate-100">
+                    {alert.symbol}
+                    {isFocusedAlert ? (
+                      <span className="rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-accent">
+                        focused
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-2">
                     {alert.alertPriority ? (
                       <span
@@ -7046,12 +7117,20 @@ export function ScalpStationApp({
                   <span>
                     {alert.bias} | {compactUsd(alert.notionalUsd)}
                   </span>
-                  <span className="text-[10px] text-slate-500">
-                    {copiedAlertId === alert.id ? "copied" : "click to copy"}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleAlertClick(alert);
+                    }}
+                    className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.16em] text-slate-400 transition hover:border-accent/40 hover:text-accent"
+                  >
+                    {copiedAlertId === alert.id ? "copied" : "copy"}
+                  </button>
                 </div>
-              </button>
-            ))
+              </div>
+              );
+            })
           ) : (
             <p className="text-xs text-slate-500">No alerts yet.</p>
           )}
@@ -7735,6 +7814,20 @@ export function ScalpStationApp({
                       {filteredRows.length} visible rows
                       {activeRowsCount ? ` | ${activeRowsCount} trade rows on top` : ""}
                     </p>
+                    {focusedSymbol ? (
+                      <div className="mt-1 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-0.5 text-[10px] uppercase tracking-[0.16em] text-accent">
+                        <span>Focus: {focusedSymbol}</span>
+                        <span className="text-accent/70">
+                          {focusedSymbolSource === "signalTape"
+                            ? "Signal Tape"
+                            : focusedSymbolSource === "screener"
+                              ? "Screener"
+                              : focusedSymbolSource === "volume"
+                                ? "Volume"
+                                : ""}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     {renderDashboardPanelHandles("screener")}
@@ -7805,6 +7898,17 @@ export function ScalpStationApp({
                                   ) : null}
                                 </div>
                                 <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em]">
+                                  <button
+                                    type="button"
+                                    onClick={() => focusOnSymbol(row.symbol, "screener")}
+                                    className={`rounded-full border px-2 py-1 transition ${
+                                      focusedSymbol === row.symbol
+                                        ? "border-accent/50 bg-accent/15 text-accent"
+                                        : "border-white/10 bg-white/5 text-slate-300 hover:border-accent/40 hover:text-accent"
+                                    }`}
+                                  >
+                                    {focusedSymbol === row.symbol ? "focused" : "focus"}
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => toggleActiveTrade(row.symbol)}
@@ -7910,6 +8014,8 @@ export function ScalpStationApp({
                           watchlistSet={watchlistSet}
                           onToggleActiveTrade={toggleActiveTrade}
                           onToggleWatchlist={toggleWatchlist}
+                          onFocusSymbol={(symbol) => focusOnSymbol(symbol, "screener")}
+                          focusedSymbol={focusedSymbol}
                         />
                       ))
                     )}
@@ -11042,7 +11148,9 @@ function MobileScreenerCard({
   accountPositionSet,
   watchlistSet,
   onToggleActiveTrade,
-  onToggleWatchlist
+  onToggleWatchlist,
+  onFocusSymbol,
+  focusedSymbol
 }: {
   row: ScreenerRow;
   activeTradeSet: Set<string>;
@@ -11050,9 +11158,12 @@ function MobileScreenerCard({
   watchlistSet: Set<string>;
   onToggleActiveTrade: (symbol: string) => void;
   onToggleWatchlist: (symbol: string) => void;
+  onFocusSymbol: (symbol: string) => void;
+  focusedSymbol: string | null;
 }) {
   const isManualActive = activeTradeSet.has(row.symbol);
   const isWatched = watchlistSet.has(row.symbol);
+  const isFocused = focusedSymbol === row.symbol;
 
   return (
     <article
@@ -11127,6 +11238,18 @@ function MobileScreenerCard({
           ))}
         </div>
       ) : null}
+
+      <button
+        type="button"
+        onClick={() => onFocusSymbol(row.symbol)}
+        className={`mt-3 w-full rounded-md border px-3 py-2 text-sm font-medium ${
+          isFocused
+            ? "border-accent/50 bg-accent/15 text-accent"
+            : "border-white/10 bg-white/5 text-slate-300"
+        }`}
+      >
+        {isFocused ? "Focused" : "Focus"}
+      </button>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button
