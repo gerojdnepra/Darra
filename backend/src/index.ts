@@ -49,7 +49,12 @@ import { BinanceStreamManager } from "./services/binance-stream";
 import { bootstrapUniverse, fetchOpenInterest } from "./services/binance-rest";
 import { MarketEventStore } from "./services/market-event-store";
 import { RevivingCoinDetector } from "./services/reviving-coin-detector";
-import { ScreenerEngine, buildUnifiedSignalFromAlert } from "./services/screener-engine";
+import {
+  ScreenerEngine,
+  buildUnifiedSignalFromAlert,
+  buildUnifiedSignalFromVolumeMilestone,
+  buildUnifiedSignalFromVolumeThresholdMilestone
+} from "./services/screener-engine";
 import { listTtsModels, synthesizeSpeech } from "./services/tts-service";
 import { signalEventWriter } from "./storage/signal-event-writer";
 import { signalOutcomeTracker } from "./storage/signal-outcome-tracker";
@@ -1693,10 +1698,38 @@ const buildFrame = (client: ClientContext, context = resolveGlobalFrameBuildCont
     risk: riskPayload.state,
     funding,
     alerts: [...riskAlerts, ...frame.alerts].slice(0, 50),
-    unifiedSignals: [
-      ...riskAlerts.map(buildUnifiedSignalFromAlert),
-      ...(frame.unifiedSignals ?? frame.alerts.map(buildUnifiedSignalFromAlert))
-    ].slice(0, 100)
+    unifiedSignals: (() => {
+      const unifiedSignals: UnifiedSignalEvent[] = [
+        ...riskAlerts.map(buildUnifiedSignalFromAlert),
+        ...(frame.unifiedSignals ?? frame.alerts.map(buildUnifiedSignalFromAlert))
+      ];
+
+      const existingRawRefs = new Set(
+        unifiedSignals.map((signal) => `${signal.source}:${signal.rawRef.collection}:${signal.rawRef.id}`)
+      );
+
+      for (const milestone of frame.volumeMilestones ?? []) {
+        const signal = buildUnifiedSignalFromVolumeMilestone(milestone);
+        const key = `${signal.source}:${signal.rawRef.collection}:${signal.rawRef.id}`;
+
+        if (!existingRawRefs.has(key)) {
+          existingRawRefs.add(key);
+          unifiedSignals.push(signal);
+        }
+      }
+
+      for (const milestone of frame.volumeThresholdMilestones ?? []) {
+        const signal = buildUnifiedSignalFromVolumeThresholdMilestone(milestone);
+        const key = `${signal.source}:${signal.rawRef.collection}:${signal.rawRef.id}`;
+
+        if (!existingRawRefs.has(key)) {
+          existingRawRefs.add(key);
+          unifiedSignals.push(signal);
+        }
+      }
+
+      return unifiedSignals.slice(0, 100);
+    })()
   };
   persistUnifiedSignals(nextFrame.unifiedSignals);
 

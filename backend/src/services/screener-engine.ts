@@ -249,6 +249,50 @@ export const buildUnifiedSignalFromAlert = (alert: ScreenerAlert): UnifiedSignal
   };
 };
 
+export const buildUnifiedSignalFromVolumeMilestone = (
+  milestone: VolumeMilestoneEvent
+): UnifiedSignalEvent => {
+  return {
+    id: `volumeMilestone:${milestone.id}`,
+    source: "volume_milestone",
+    sourceId: milestone.id,
+    symbol: milestone.symbol,
+    kind: "volume_milestone",
+    direction: milestone.direction,
+    title: `${milestone.symbol} volume milestone ${milestone.direction}`,
+    description: `Volume milestone detected for ${milestone.symbol}: ${milestone.quoteVolume24h.toLocaleString()} quote volume, ${milestone.change24hPct.toFixed(2)}% 24h change`,
+    severity: "info",
+    createdAt: milestone.detectedAt,
+    mergeKey: [`volume_milestone`, milestone.id].join("|"),
+    rawRef: {
+      collection: "volumeMilestones",
+      id: milestone.id
+    }
+  };
+};
+
+export const buildUnifiedSignalFromVolumeThresholdMilestone = (
+  milestone: VolumeMilestoneEvent
+): UnifiedSignalEvent => {
+  return {
+    id: `volumeThresholdMilestone:${milestone.id}`,
+    source: "volume_threshold_milestone",
+    sourceId: milestone.id,
+    symbol: milestone.symbol,
+    kind: "volume_threshold_milestone",
+    direction: milestone.direction,
+    title: `${milestone.symbol} volume threshold milestone ${milestone.direction}`,
+    description: `Volume threshold milestone detected for ${milestone.symbol}: ${milestone.quoteVolume24h.toLocaleString()} quote volume within ${milestone.thresholdQuoteVolume24h.toLocaleString()} threshold`,
+    severity: "info",
+    createdAt: milestone.detectedAt,
+    mergeKey: [`volume_threshold_milestone`, milestone.id].join("|"),
+    rawRef: {
+      collection: "volumeThresholdMilestones",
+      id: milestone.id
+    }
+  };
+};
+
 export class ScreenerEngine {
   private readonly symbols = new Map<string, SymbolState>();
   private readonly alerts: ScreenerAlert[] = [];
