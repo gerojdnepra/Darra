@@ -7229,10 +7229,82 @@ export function ScalpStationApp({
             .map((row) => row.slice(0, correlationPreviewSymbols.length)),
     [correlationPreviewSymbols, riskFrame?.correlation.matrix, shouldBuildCorrelationData]
   );
-  const volumeMilestones = wantsFrameSection("volumeMilestones") ? frame?.volumeMilestones ?? [] : [];
-  const volumeThresholdMilestones = wantsFrameSection("volumeThresholdMilestones")
-    ? frame?.volumeThresholdMilestones ?? []
-    : [];
+  const volumeMilestones = useMemo(() => {
+    if (!wantsFrameSection("volumeMilestones")) {
+      return [];
+    }
+
+    const volumeMilestoneSignals = (frame?.unifiedSignals ?? []).filter(
+      (signal) => signal.source === "volume_milestone"
+    );
+
+    if (volumeMilestoneSignals.length > 0) {
+      const legacyVolumeMilestonesById = new Map(
+        (frame?.volumeMilestones ?? []).map((event) => [event.id, event])
+      );
+
+      return volumeMilestoneSignals
+        .slice()
+        .sort((left, right) => right.createdAt - left.createdAt)
+        .map((signal): VolumeMilestoneEvent => {
+          const legacyEvent = legacyVolumeMilestonesById.get(signal.rawRef.id);
+          const direction: "above" | "below" = signal.direction === "below" ? "below" : "above";
+
+          return {
+            id: signal.rawRef.id,
+            symbol: signal.symbol,
+            baseAsset: legacyEvent?.baseAsset ?? "",
+            quoteAsset: legacyEvent?.quoteAsset ?? "",
+            direction,
+            quoteVolume24h: legacyEvent?.quoteVolume24h ?? 0,
+            thresholdQuoteVolume24h: legacyEvent?.thresholdQuoteVolume24h ?? 0,
+            change24hPct: legacyEvent?.change24hPct ?? 0,
+            lastPrice: legacyEvent?.lastPrice ?? 0,
+            detectedAt: signal.createdAt
+          };
+        });
+    }
+
+    return frame?.volumeMilestones ?? [];
+  }, [frame?.unifiedSignals, frame?.volumeMilestones, wantsFrameSection("volumeMilestones")]);
+  const volumeThresholdMilestones = useMemo(() => {
+    if (!wantsFrameSection("volumeThresholdMilestones")) {
+      return [];
+    }
+
+    const volumeThresholdMilestoneSignals = (frame?.unifiedSignals ?? []).filter(
+      (signal) => signal.source === "volume_threshold_milestone"
+    );
+
+    if (volumeThresholdMilestoneSignals.length > 0) {
+      const legacyThresholdMilestonesById = new Map(
+        (frame?.volumeThresholdMilestones ?? []).map((event) => [event.id, event])
+      );
+
+      return volumeThresholdMilestoneSignals
+        .slice()
+        .sort((left, right) => right.createdAt - left.createdAt)
+        .map((signal): VolumeMilestoneEvent => {
+          const legacyEvent = legacyThresholdMilestonesById.get(signal.rawRef.id);
+          const direction: "above" | "below" = signal.direction === "below" ? "below" : "above";
+
+          return {
+            id: signal.rawRef.id,
+            symbol: signal.symbol,
+            baseAsset: legacyEvent?.baseAsset ?? "",
+            quoteAsset: legacyEvent?.quoteAsset ?? "",
+            direction,
+            quoteVolume24h: legacyEvent?.quoteVolume24h ?? 0,
+            thresholdQuoteVolume24h: legacyEvent?.thresholdQuoteVolume24h ?? 0,
+            change24hPct: legacyEvent?.change24hPct ?? 0,
+            lastPrice: legacyEvent?.lastPrice ?? 0,
+            detectedAt: signal.createdAt
+          };
+        });
+    }
+
+    return frame?.volumeThresholdMilestones ?? [];
+  }, [frame?.unifiedSignals, frame?.volumeThresholdMilestones, wantsFrameSection("volumeThresholdMilestones")]);
   const majorVolumeMilestones = useMemo(
     () => volumeMilestones.filter((event) => event.direction === "above"),
     [volumeMilestones]
