@@ -159,6 +159,41 @@ However:
 
 `UnifiedSignal` is not yet the sole canonical transport model.
 
+### UnifiedSignal Transport Compatibility Contract
+
+Canonical stream:
+- `frame.unifiedSignals`
+
+Currently projected sources:
+- `alert`
+- `volume_milestone`
+- `volume_threshold_milestone`
+
+Legacy compatibility fields:
+- `frame.alerts`
+- `frame.volumeMilestones`
+- `frame.volumeThresholdMilestones`
+
+Rules:
+1. New UI consumers should prefer `frame.unifiedSignals`.
+2. Legacy fields must remain until native/background/older clients migrate.
+3. Legacy fields are compatibility streams, not the preferred product model.
+4. Do not remove alerts or volume arrays without a dedicated removal-readiness PR.
+5. `rawRef.collection` values must remain supported for historical reconstruction:
+   - `alerts`
+   - `volumeMilestones`
+   - `volumeThresholdMilestones`
+6. Backend may continue emitting legacy fields when requested through visible sections.
+7. Android/native/background services may still depend on legacy alerts.
+
+### PR-32 UnifiedSignal Transport Completion
+
+- PR-32A Backend volume projection: PASS
+- PR-32B.1 Runtime volume evidence: PASS
+- PR-32D VATAGA signal tape migration: PASS
+- PR-32F Frontend volume panel migration: PASS
+- PR-32G Legacy volume removal readiness audit: KEEP_FOR_NOW
+
 ### Knowledge Layer Status
 
 Status: PLANNED for Trader Knowledge Graph and Knowledge Assistant.
