@@ -628,6 +628,27 @@ These percentages are source-audit estimates. No builds, packaged desktop smoke,
 Overall beta readiness: 89%
 ```
 
+## Release Readiness Ledger
+
+This ledger records the latest validated release evidence without claiming beta readiness.
+
+| Area | Status | Evidence | Remaining Gap |
+| --- | --- | --- | --- |
+| Backend build/checks | PASS | backend build, order-safety, live-readiness passed. | None from the validated checks. |
+| Frontend build | PASS | Next build/type/static generation passed. | None from the validated checks. |
+| Frontend production runtime | PASS WITH NOTE | fresh `next start` route smoke returned HTTP 200 on `/`, `/module/replay`, `/module/knowledgeWorkspace`, `/module/account`, `/module/activeTrades`. | One `EADDRINUSE` occurred on retry; not an app regression. |
+| Backend runtime health | PASS WITH NOTE | `/health` and `/health/diagnostics` were live on the backend runtime. | First launch needed explicit testnet REST/WS process env. |
+| WebSocket snapshot | PASS WITH NOTE | welcome + snapshot received; `unifiedSignals` present. | Standalone volume arrays were absent in that PR-33D snapshot but already proven in PR-32B.1. |
+| Desktop package | PASS AFTER FIX | `prepare:bundles` and `package:folder` passed after restoring `summarizeBinanceEnvironmentDiagnostics`. | None from the validated packaging smoke. |
+| Safety gates | PARTIAL | `order-safety` and `live-readiness` checks passed. | Live submit-path preflight binding is still unproven without a safe control-token/harness. |
+| UnifiedSignal transport | PASS | runtime confirmed `unifiedSignals` includes `alert`, `volume_milestone`, `volume_threshold_milestone`. | None from the validated transport smoke. |
+| Legacy compatibility fields | KEEP_FOR_NOW | PR-32G found removal is not safe yet. | Keep compatibility arrays until a dedicated removal-readiness audit passes. |
+| Decision chain/replay | PASS WITH NOTE | signal-linked paper chain preserved `unifiedSignalId` end-to-end; old missing link classified as manual/old artifact. | Broader historical chain coverage is still partial. |
+| Git hygiene | PASS | baseline commit exists; current status should be clean after the PR-33 fix commit. | Pending commit hygiene if local worktree changes remain uncommitted. |
+| Release readiness | PARTIAL | Core runtime is healthy after PR-32/PR-33 and the desktop package smoke now passes after the fix. | Clean full-start smoke, native/background client validation, legacy compatibility watch, and submit-path safety proof are still needed. |
+
+Release readiness: PARTIAL / NOT YET BETA-READY
+
 ## What Was Already Implemented
 
 The scores below are implementation quality scores from this README audit, not market-performance scores. They combine source clarity, contract completeness, safety posture, testability and remaining risk.
