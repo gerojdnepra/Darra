@@ -363,8 +363,13 @@ function loadDesktopEnv() {
     new Set(
       [
         process.env.SCALPSTATION_ENV_FILE,
+        path.resolve(process.cwd(), "..", ".env.testnet"),
+        path.resolve(process.cwd(), "backend", ".env.testnet"),
+        path.resolve(process.cwd(), "desktop", ".env.testnet"),
         path.resolve(process.cwd(), ".env"),
         path.resolve(process.cwd(), "..", ".env"),
+        path.resolve(process.cwd(), "backend", ".env"),
+        path.resolve(process.cwd(), "desktop", ".env"),
         path.resolve(path.dirname(process.execPath), ".env"),
         process.resourcesPath ? path.resolve(process.resourcesPath, ".env") : null
       ].filter(Boolean)
@@ -790,8 +795,12 @@ function getManagedWindowState(key) {
 function getDefaultBounds(key, display) {
   const workArea = display.workArea;
   const isDashboard = key === "dashboard";
-  const width = Math.min(isDashboard ? 1600 : 980, workArea.width);
-  const height = Math.min(isDashboard ? 960 : 760, workArea.height);
+  const width = isDashboard
+    ? Math.max(Math.min(Math.floor(workArea.width * 0.92), workArea.width), 1100)
+    : Math.max(Math.min(Math.floor(workArea.width * 0.52), workArea.width), 720);
+  const height = isDashboard
+    ? Math.max(Math.min(Math.floor(workArea.height * 0.90), workArea.height), 760)
+    : Math.max(Math.min(Math.floor(workArea.height * 0.72), workArea.height), 520);
   const offsetIndex = Math.max(
     managedWindowDefinitions.findIndex((definition) => definition.key === key),
     0
@@ -820,6 +829,40 @@ function clampBoundsToDisplay(bounds, display) {
   };
 }
 
+function shouldUseDefaultWindowBounds(key, bounds, display) {
+  if (!bounds) {
+    return true;
+  }
+
+  const workArea = display.workArea;
+  const widthRatio = bounds.width / workArea.width;
+  const heightRatio = bounds.height / workArea.height;
+  const areaRatio = (bounds.width * bounds.height) / (workArea.width * workArea.height);
+  const isDashboard = key === "dashboard";
+
+  if (isDashboard) {
+    return widthRatio < 0.7 || heightRatio < 0.72 || areaRatio < 0.5;
+  }
+
+  return widthRatio < 0.38 || heightRatio < 0.5 || areaRatio < 0.22;
+}
+
+function resolveManagedWindowBounds(key) {
+  const windowState = getManagedWindowState(key);
+  const display = windowState.displayId
+    ? resolveDisplay(windowState.displayId)
+    : windowState.bounds
+      ? screen.getDisplayMatching(windowState.bounds)
+      : screen.getPrimaryDisplay();
+  const savedBounds = windowState.bounds ? clampBoundsToDisplay(windowState.bounds, display) : null;
+
+  if (!savedBounds || shouldUseDefaultWindowBounds(key, savedBounds, display)) {
+    return getDefaultBounds(key, display);
+  }
+
+  return savedBounds;
+}
+
 function resolveDisplay(displayId) {
   const displays = screen.getAllDisplays();
 
@@ -834,17 +877,7 @@ function resolveDisplay(displayId) {
 }
 
 function resolveWindowBounds(key) {
-  const windowState = getManagedWindowState(key);
-
-  if (windowState.bounds) {
-    const targetDisplay = windowState.displayId
-      ? resolveDisplay(windowState.displayId)
-      : screen.getDisplayMatching(windowState.bounds);
-
-    return clampBoundsToDisplay(windowState.bounds, targetDisplay);
-  }
-
-  return getDefaultBounds(key, resolveDisplay(windowState.displayId));
+  return resolveManagedWindowBounds(key);
 }
 
 function syncWindowStateFromInstance(key, instance, options = {}) {
@@ -1074,6 +1107,7 @@ async function openManagedWindow(key) {
 
   const windowState = getManagedWindowState(key);
   windowState.open = true;
+  windowState.bounds = resolveManagedWindowBounds(key);
   saveLayoutState();
 
   const browserWindow = createManagedWindow(key);
@@ -1140,7 +1174,7 @@ async function closeManagedWindow(key) {
 
 function moveWindowToDisplay(instance, key, displayId) {
   const display = resolveDisplay(displayId);
-  const existingBounds = normalizeBounds(instance.getBounds()) ?? resolveWindowBounds(key);
+  const existingBounds = normalizeBounds(instance.getBounds()) ?? resolveManagedWindowBounds(key);
   const centeredBounds = clampBoundsToDisplay(
     {
       ...existingBounds,

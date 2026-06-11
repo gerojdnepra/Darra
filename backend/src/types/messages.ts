@@ -821,6 +821,24 @@ export interface LiveSafetyStateMessage {
     }>;
     killSwitchActive: boolean;
     orderControlAuthRequired: boolean;
+    configEnvDiagnostics?: {
+      envFilePath: string | null;
+      envFileSource: string | null;
+      envFileCandidates: string[];
+      envFilesLoaded: string[];
+    };
+    accountConnectionStatus?: {
+      connectedClients: number;
+      enabledClients: number;
+      connectedStreams: number;
+    };
+    environmentDiagnostics?: {
+      mode: "LIVE" | "TESTNET" | "DISABLED";
+      restBaseClassification: "LIVE" | "TESTNET" | "UNKNOWN";
+      wsBaseClassification: "LIVE" | "TESTNET" | "UNKNOWN";
+      restBaseIsTestnet: boolean;
+      wsBaseIsTestnet: boolean;
+    };
     gates: {
       liveTradingEnabled: boolean;
       orderLiveModeEnabled: boolean;

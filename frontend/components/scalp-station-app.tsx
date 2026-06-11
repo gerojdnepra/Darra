@@ -12683,6 +12683,54 @@ export function ScalpStationApp({
                     value={liveSafetyState?.orderControlAuthRequired ? "REQUIRED" : "OFF"}
                   />
                 </div>
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-4">
+                  <Stat
+                    label="Active Env"
+                    value={liveSafetyState?.configEnvDiagnostics?.envFileSource ?? "unknown"}
+                  />
+                  <Stat
+                    label="Mode"
+                    value={liveSafetyState?.environmentDiagnostics?.mode ?? liveSafetyState?.environment ?? "UNKNOWN"}
+                  />
+                  <Stat
+                    label="REST Env"
+                    value={liveSafetyState?.restEnvironment ?? "UNKNOWN"}
+                  />
+                  <Stat
+                    label="WS Env"
+                    value={liveSafetyState?.wsEnvironment ?? "UNKNOWN"}
+                  />
+                </div>
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-4">
+                  <Stat
+                    label="Account Conn"
+                    value={
+                      liveSafetyState?.accountConnectionStatus
+                        ? `${liveSafetyState.accountConnectionStatus.connectedStreams}/${liveSafetyState.accountConnectionStatus.enabledClients}`
+                        : accountStream?.connected
+                          ? "CONNECTED"
+                          : accountStream?.enabled
+                            ? "DEGRADED"
+                            : "OFFLINE"
+                    }
+                  />
+                  <Stat
+                    label="Account Clients"
+                    value={
+                      liveSafetyState?.accountConnectionStatus
+                        ? String(liveSafetyState.accountConnectionStatus.connectedClients)
+                        : "unknown"
+                    }
+                  />
+                  <Stat
+                    label="Env Blockers"
+                    value={String(liveSafetyState?.environmentBlockers?.length ?? 0)}
+                  />
+                  <Stat
+                    label="Readiness Blockers"
+                    value={String(liveSafetyDisabledReasons.length)}
+                  />
+                </div>
                 {liveSafetyDisabledReasons.length > 0 ? (
                   <div className="mt-3 rounded-md border border-negative/25 bg-negative/10 px-3 py-2 text-xs text-negative">
                     <div className="font-semibold uppercase tracking-[0.12em]">Live blocked</div>

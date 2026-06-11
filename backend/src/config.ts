@@ -5,6 +5,13 @@ import { resolveBinanceEnvironment } from "./safety/binance-environment";
 
 loadEnvFiles();
 
+export interface ConfigEnvDiagnostics {
+  envFilePath: string | null;
+  envFileSource: string | null;
+  envFileCandidates: string[];
+  envFilesLoaded: string[];
+}
+
 const toNumber = (value: string | undefined, fallback: number): number => {
   if (!value) {
     return fallback;
@@ -100,12 +107,27 @@ const normalizePrivateKey = (value: string | undefined): string =>
 
 function loadEnvFiles(): void {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const bundleDir = path.resolve(__dirname, "..");
+  const projectRoot = path.resolve(bundleDir, "..", "..");
+  const projectBackendDir = path.resolve(projectRoot, "backend");
+  const projectDesktopDir = path.resolve(projectRoot, "desktop");
   const candidateEnvPaths = Array.from(
     new Set(
       [
         process.env.SCALPSTATION_ENV_FILE,
+        path.resolve(process.cwd(), "..", ".env.testnet"),
+        path.resolve(process.cwd(), "backend", ".env.testnet"),
+        path.resolve(process.cwd(), "desktop", ".env.testnet"),
+        path.resolve(projectBackendDir, ".env.testnet"),
+        path.resolve(projectDesktopDir, ".env.testnet"),
+        path.resolve(projectRoot, ".env.testnet"),
         path.resolve(process.cwd(), ".env"),
         path.resolve(process.cwd(), "..", ".env"),
+        path.resolve(process.cwd(), "backend", ".env"),
+        path.resolve(process.cwd(), "desktop", ".env"),
+        path.resolve(projectBackendDir, ".env"),
+        path.resolve(projectDesktopDir, ".env"),
+        path.resolve(projectRoot, ".env"),
         path.resolve(path.dirname(process.execPath), ".env"),
         resourcesPath ? path.resolve(resourcesPath, ".env") : null
       ]
@@ -113,6 +135,7 @@ function loadEnvFiles(): void {
         .filter((value): value is string => !!value)
     )
   );
+  const loadedEnvFiles: string[] = [];
 
   for (const envPath of candidateEnvPaths) {
     if (!fs.existsSync(envPath)) {
@@ -120,7 +143,18 @@ function loadEnvFiles(): void {
     }
 
     dotenv.config({ path: envPath, override: false });
+    loadedEnvFiles.push(envPath);
   }
+
+  (process as NodeJS.Process & { scalpstationEnvDiagnostics?: ConfigEnvDiagnostics }).scalpstationEnvDiagnostics =
+    {
+      envFilePath: loadedEnvFiles[0] ?? null,
+      envFileSource:
+        process.env.SCALPSTATION_ENV_FILE?.trim() ||
+        (loadedEnvFiles[0] ? path.basename(loadedEnvFiles[0]) : null),
+      envFileCandidates: candidateEnvPaths,
+      envFilesLoaded: loadedEnvFiles
+    };
 }
 
 const authPublicBaseUrl = (process.env.AUTH_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/, "");

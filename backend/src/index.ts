@@ -47,6 +47,7 @@ import { BinanceAccountStreamManager } from "./services/binance-account-stream";
 import { BinanceOrderService } from "./services/binance-order-service";
 import { BinanceStreamManager } from "./services/binance-stream";
 import { bootstrapUniverse, fetchOpenInterest } from "./services/binance-rest";
+import { summarizeBinanceEnvironmentDiagnostics } from "./safety/binance-environment";
 import { MarketEventStore } from "./services/market-event-store";
 import { RevivingCoinDetector } from "./services/reviving-coin-detector";
 import {
@@ -388,6 +389,16 @@ const createLiveSafetyStateMessage = () => {
       ready: decision.ready,
       testnetMode: config.binanceFuturesTestnet,
       environment: decision.environment.intendedMode,
+      configEnvDiagnostics: (process as NodeJS.Process & {
+          scalpstationEnvDiagnostics?: {
+            envFilePath: string | null;
+            envFileSource: string | null;
+            envFileCandidates: string[];
+            envFilesLoaded: string[];
+          };
+        }).scalpstationEnvDiagnostics,
+      accountConnectionStatus: summarizeAccountSessions(),
+      environmentDiagnostics: summarizeBinanceEnvironmentDiagnostics(decision.environment),
       restEnvironment: decision.environment.restEnvironment,
       wsEnvironment: decision.environment.wsEnvironment,
       restBase: decision.environment.restBase,
