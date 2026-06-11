@@ -26,6 +26,14 @@ export interface BinanceEnvironmentPolicy {
   warnings: BinanceEnvironmentReason[];
 }
 
+export interface BinanceEnvironmentDiagnostics {
+  mode: BinanceEnvironmentMode;
+  restBaseClassification: BinanceEndpointEnvironment;
+  wsBaseClassification: BinanceEndpointEnvironment;
+  restBaseIsTestnet: boolean;
+  wsBaseIsTestnet: boolean;
+}
+
 const LIVE_REST_HOST = "fapi.binance.com";
 const LIVE_WS_HOST = "fstream.binance.com";
 const TESTNET_REST_HOST = "testnet.binancefuture.com";
@@ -142,3 +150,13 @@ export const resolveBinanceEnvironment = (
     warnings
   };
 };
+
+export const summarizeBinanceEnvironmentDiagnostics = (
+  policy: BinanceEnvironmentPolicy
+): BinanceEnvironmentDiagnostics => ({
+  mode: policy.intendedMode,
+  restBaseClassification: policy.restEnvironment,
+  wsBaseClassification: policy.wsEnvironment,
+  restBaseIsTestnet: policy.restEnvironment === "TESTNET",
+  wsBaseIsTestnet: policy.wsEnvironment === "TESTNET"
+});
