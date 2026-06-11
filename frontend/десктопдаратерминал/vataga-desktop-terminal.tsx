@@ -3448,7 +3448,41 @@ function PaneRenderer({
   }
 
   if (pane.widget === "signalTape") {
-    return <SignalTapePane alerts={frame?.alerts ?? []} onRequestReplay={onRequestReplay} />;
+    const unified = frame?.unifiedSignals ?? [];
+    const vatagaAlerts = (() => {
+      if (Array.isArray(unified) && unified.length > 0) {
+        const filtered = unified.filter((s) =>
+          s && (s.source === "alert" || s.source === "volume_milestone" || s.source === "volume_threshold_milestone")
+        );
+        if (filtered.length > 0) {
+          const mapped = filtered
+            .slice()
+            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+            .map((signal) => {
+              const bias: Bias = signal.bias === "SHORT" ? "SHORT" : signal.bias === "LONG" ? "LONG" : "NEUTRAL";
+              const severity: ScreenerAlert["severity"] =
+                signal.severity === "high" ? "high" : signal.severity === "critical" ? "critical" : "info";
+              const notionalUsd = Number((signal as any).notionalUsd ?? 0);
+
+              return {
+                id: signal.rawRef && signal.rawRef.collection === "alerts" ? signal.rawRef.id : signal.id,
+                symbol: signal.symbol ?? "",
+                reason: signal.description ?? signal.title ?? "",
+                bias,
+                notionalUsd,
+                createdAt: signal.createdAt,
+                severity
+              };
+            });
+
+          return mapped;
+        }
+      }
+
+      return frame?.alerts ?? [];
+    })();
+
+    return <SignalTapePane alerts={vatagaAlerts} onRequestReplay={onRequestReplay} />;
   }
 
   if (pane.widget === "tradePad") {
