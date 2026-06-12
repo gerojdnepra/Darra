@@ -365,7 +365,7 @@ body[data-desktop-shell="signal-overlay"] main {
   }
 
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) #screener {
-    grid-column: span var(--dashboard-panel-span, 9);
+    grid-column: span var(--dashboard-panel-span, 6);
     order: var(--dashboard-panel-order, 20);
     min-width: 0;
   }
@@ -376,14 +376,16 @@ body[data-desktop-shell="signal-overlay"] main {
   }
 
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) #alerts {
-    grid-column: span var(--dashboard-panel-span, 4);
+    grid-column: span var(--dashboard-panel-span, 2);
     order: var(--dashboard-panel-order, 40);
+    min-width: 0;
   }
 
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) .dashboard-swiper aside.contents > .swipe-page:not(#alerts):not(#account):not(#active-trades):not(#watchlist):not(#health),
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) .dashboard-swiper > section.swipe-page:not(#overview) {
-    grid-column: span var(--dashboard-panel-span, 4);
+    grid-column: span var(--dashboard-panel-span, 2);
     order: var(--dashboard-panel-order, 50);
+    min-width: 0;
   }
 
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) #account,
@@ -422,14 +424,14 @@ body[data-desktop-shell="signal-overlay"] main {
   }
 
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) #screener {
-    grid-column: span var(--dashboard-panel-span, 9);
+    grid-column: span var(--dashboard-panel-span, 6);
   }
 
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) #overview,
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) #alerts,
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) .dashboard-swiper aside.contents > .swipe-page:not(#alerts):not(#account):not(#active-trades):not(#watchlist):not(#health),
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) .dashboard-swiper > section.swipe-page:not(#overview) {
-    grid-column: span var(--dashboard-panel-span, 4);
+    grid-column: span var(--dashboard-panel-span, 2);
   }
 
   body:not([data-desktop-shell="module"]):not([data-desktop-shell="signal-overlay"]) #account,

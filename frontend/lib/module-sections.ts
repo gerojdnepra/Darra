@@ -324,9 +324,9 @@ export const defaultDashboardPanelLayout: Record<
   { colSpan: number; minHeightPx: number; x: number; y: number; widthPx: number; heightPx: number }
 > = {
   filters: { colSpan: 3, minHeightPx: 260, x: 12, y: 1220, widthPx: 390, heightPx: 360 },
-  screener: { colSpan: 3, minHeightPx: 520, x: 12, y: 112, widthPx: 390, heightPx: 540 },
+  screener: { colSpan: 6, minHeightPx: 520, x: 12, y: 112, widthPx: 780, heightPx: 540 },
   overview: { colSpan: 4, minHeightPx: 180, x: 12, y: 690, widthPx: 500, heightPx: 220 },
-  alerts: { colSpan: 3, minHeightPx: 260, x: 12, y: 896, widthPx: 390, heightPx: 320 },
+  alerts: { colSpan: 2, minHeightPx: 260, x: 12, y: 896, widthPx: 260, heightPx: 320 },
   socialAuth: { colSpan: 4, minHeightPx: 260, x: 1036, y: 690, widthPx: 528, heightPx: 300 },
   cabinet: { colSpan: 4, minHeightPx: 360, x: 12, y: 1030, widthPx: 500, heightPx: 540 },
   account: { colSpan: 3, minHeightPx: 320, x: 926, y: 774, widthPx: 360, heightPx: 260 },
@@ -337,8 +337,8 @@ export const defaultDashboardPanelLayout: Record<
   fundingBasis: { colSpan: 4, minHeightPx: 220, x: 12, y: 1710, widthPx: 500, heightPx: 280 },
   marketFlow: { colSpan: 4, minHeightPx: 260, x: 524, y: 1710, widthPx: 500, heightPx: 320 },
   chartPanel: { colSpan: 7, minHeightPx: 560, x: 414, y: 112, widthPx: 980, heightPx: 650 },
-  decisionStack: { colSpan: 3, minHeightPx: 420, x: 1406, y: 112, widthPx: 380, heightPx: 360 },
-  symbolDetailRail: { colSpan: 3, minHeightPx: 420, x: 1406, y: 484, widthPx: 380, heightPx: 430 },
+  decisionStack: { colSpan: 2, minHeightPx: 420, x: 1406, y: 112, widthPx: 260, heightPx: 360 },
+  symbolDetailRail: { colSpan: 2, minHeightPx: 420, x: 1406, y: 484, widthPx: 260, heightPx: 430 },
   marketStory: { colSpan: 3, minHeightPx: 220, x: 1406, y: 926, widthPx: 380, heightPx: 220 },
   signalIntelligence: { colSpan: 4, minHeightPx: 260, x: 1036, y: 2360, widthPx: 528, heightPx: 320 },
   metaRegimeGovernor: {
@@ -432,12 +432,12 @@ export const defaultDashboardPanelLayout: Record<
 
 export const chartFirstDashboardPanelLayout: DashboardPanelLayout = {
   ...defaultDashboardPanelLayout,
-  screener: { colSpan: 3, minHeightPx: 520, x: 12, y: 112, widthPx: 390, heightPx: 540 },
+  screener: { colSpan: 6, minHeightPx: 520, x: 12, y: 112, widthPx: 780, heightPx: 540 },
   watchlist: { colSpan: 3, minHeightPx: 180, x: 12, y: 664, widthPx: 390, heightPx: 220 },
-  alerts: { colSpan: 3, minHeightPx: 260, x: 12, y: 896, widthPx: 390, heightPx: 320 },
+  alerts: { colSpan: 2, minHeightPx: 260, x: 12, y: 896, widthPx: 260, heightPx: 320 },
   chartPanel: { colSpan: 6, minHeightPx: 560, x: 414, y: 112, widthPx: 610, heightPx: 760 },
-  decisionStack: { colSpan: 3, minHeightPx: 300, x: 1036, y: 112, widthPx: 392, heightPx: 250 },
-  symbolDetailRail: { colSpan: 3, minHeightPx: 340, x: 1036, y: 374, widthPx: 392, heightPx: 330 },
+  decisionStack: { colSpan: 2, minHeightPx: 300, x: 1036, y: 112, widthPx: 260, heightPx: 250 },
+  symbolDetailRail: { colSpan: 2, minHeightPx: 340, x: 1036, y: 374, widthPx: 260, heightPx: 330 },
   marketStory: { colSpan: 3, minHeightPx: 200, x: 1036, y: 716, widthPx: 392, heightPx: 210 },
   marketFlow: { colSpan: 4, minHeightPx: 240, x: 414, y: 884, widthPx: 610, heightPx: 300 },
   fundingBasis: { colSpan: 3, minHeightPx: 220, x: 1036, y: 938, widthPx: 392, heightPx: 246 },
