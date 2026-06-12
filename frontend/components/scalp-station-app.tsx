@@ -11872,7 +11872,7 @@ export function ScalpStationApp({
                                     : "bg-transparent"
                             } cursor-pointer transition hover:bg-white/5`}
                           >
-                            <Cell>
+                            <Cell className="whitespace-normal">
                               <div className="space-y-2">
                                 <div className="flex flex-wrap items-center gap-2 text-slate-100">
                                   <span className="font-semibold">{row.symbol}</span>
@@ -11988,7 +11988,7 @@ export function ScalpStationApp({
                               {formatPercent(row.fundingRate * 100, 3)}
                             </Cell>
                             <Cell>{compactUsd(row.quoteVolume24h)}</Cell>
-                            <Cell>
+                            <Cell className="whitespace-normal">
                               <div className="flex flex-wrap gap-1">
                                 {row.tags.slice(0, 4).map((tag) => (
                                   <span
@@ -15413,7 +15413,7 @@ const OrderHistorySection = memo(function OrderHistorySection() {
                     </span>
                   </Cell>
                   <Cell>{orderHistoryModeLabel(event.paperMode)}</Cell>
-                  <Cell className="max-w-[220px]">
+                  <Cell className="whitespace-normal max-w-[220px]">
                     <div className="truncate text-slate-300">
                       {event.message ?? event.errorCode ?? "--"}
                     </div>

@@ -178,7 +178,7 @@ export function Cell({
   colSpan?: number;
 }) {
   return (
-    <td colSpan={colSpan} className={`px-3 py-3 text-slate-200 ${className ?? ""}`}>
+    <td colSpan={colSpan} className={`whitespace-nowrap px-3 py-3 text-slate-200 ${className ?? ""}`}>
       {children}
     </td>
   );
