@@ -630,7 +630,7 @@ Overall beta readiness: 89%
 
 ## Release Readiness Ledger
 
-This ledger records the latest validated release evidence without claiming beta readiness.
+This ledger records the latest validated release evidence and separates beta readiness from legacy deprecation readiness.
 
 | Area | Status | Evidence | Remaining Gap |
 | --- | --- | --- | --- |
@@ -639,15 +639,85 @@ This ledger records the latest validated release evidence without claiming beta 
 | Frontend production runtime | PASS WITH NOTE | fresh `next start` route smoke returned HTTP 200 on `/`, `/module/replay`, `/module/knowledgeWorkspace`, `/module/account`, `/module/activeTrades`. | One `EADDRINUSE` occurred on retry; not an app regression. |
 | Backend runtime health | PASS WITH NOTE | `/health` and `/health/diagnostics` were live on the backend runtime. | First launch needed explicit testnet REST/WS process env. |
 | WebSocket snapshot | PASS WITH NOTE | welcome + snapshot received; `unifiedSignals` present. | Standalone volume arrays were absent in that PR-33D snapshot but already proven in PR-32B.1. |
-| Desktop package | PASS AFTER FIX | `prepare:bundles` and `package:folder` passed after restoring `summarizeBinanceEnvironmentDiagnostics`. | None from the validated packaging smoke. |
+| Desktop package | PASS WITH NOTE | `prepare:bundles` and `package:folder` passed, and PR-35 packaged runtime smoke confirmed the app launches, serves health, accepts WS snapshot requests, and shuts down cleanly. | Normal window close does not fully exit because the application uses tray behavior. Forced shutdown of only the launched packaged runtime PID tree was used for cleanup. No orphan packaged processes remained. |
 | Safety gates | PARTIAL | `order-safety` and `live-readiness` checks passed. | Live submit-path preflight binding is still unproven without a safe control-token/harness. |
 | UnifiedSignal transport | PASS | runtime confirmed `unifiedSignals` includes `alert`, `volume_milestone`, `volume_threshold_milestone`. | None from the validated transport smoke. |
 | Legacy compatibility fields | KEEP_FOR_NOW | PR-32G found removal is not safe yet. | Keep compatibility arrays until a dedicated removal-readiness audit passes. |
+| Paper/Desktop Beta readiness | BETA_CANDIDATE | PR-37 clean packaged runtime validation: PASS. PR-38 legacy compatibility blockers are compatibility debt, not a paper/desktop beta blocker. | Keep legacy compatibility fields until a dedicated removal-readiness audit passes. |
+| Live/Testnet Beta readiness | BLOCKED | PR-42D configured testnet retest: private WS CONNECTING, account stream enabled but connected=false, leverage bracket lookup failed, order preflight rejected with `account_connection`, `max_leverage`, `margin_available`, and Safe-To-Add BLOCK. | Live/testnet remains blocked until private account stream and leverage bracket lookup pass. Current behavior is safe because preflight rejects and Safe-To-Add is BLOCK. |
+| Legacy deprecation readiness | NOT_READY_FOR_DEPRECATION | PR-38 legacy compatibility blockers: NOT_READY_FOR_DEPRECATION. Alerts, `volumeMilestones`, and `volumeThresholdMilestones` cannot be removed today. | Keep legacy alerts and legacy volume fields until a dedicated removal-readiness audit passes. |
 | Decision chain/replay | PASS WITH NOTE | signal-linked paper chain preserved `unifiedSignalId` end-to-end; old missing link classified as manual/old artifact. | Broader historical chain coverage is still partial. |
 | Git hygiene | PASS | baseline commit exists; current status should be clean after the PR-33 fix commit. | Pending commit hygiene if local worktree changes remain uncommitted. |
-| Release readiness | PARTIAL | Core runtime is healthy after PR-32/PR-33 and the desktop package smoke now passes after the fix. | Clean full-start smoke, native/background client validation, legacy compatibility watch, and submit-path safety proof are still needed. |
+| Release readiness | PARTIAL | Paper/Desktop beta evidence is now strong, but live/testnet beta is still blocked by configured runtime gaps. | Clean separation of paper vs live beta readiness is now documented; live/testnet still needs private account stream and leverage bracket proof. |
 
-Release readiness: PARTIAL / NOT YET BETA-READY
+Release readiness:
+
+- Paper/Desktop Beta: BETA_CANDIDATE
+- Live/Testnet Beta: BLOCKED
+
+PR-35 Desktop Packaged Runtime Smoke
+PASS WITH NOTE
+
+Normal window close does not fully exit because the application uses tray behavior.
+
+Forced shutdown of only the launched packaged runtime PID tree was used for cleanup.
+
+No orphan packaged processes remained.
+
+## Release Evidence Consolidation
+
+This section consolidates only evidence already validated in PR-32, PR-33, PR-34 and PR-35.
+
+### Build Evidence
+
+- Backend build: PASS
+- Frontend build: PASS
+- Desktop package: PASS AFTER FIX
+
+### Runtime Evidence
+
+- Health: PASS
+- Diagnostics: PASS
+- Route smoke: PASS WITH NOTE
+
+### WebSocket Evidence
+
+- welcome: PASS
+- snapshot: PASS
+- unifiedSignals: PASS
+
+### Configured Testnet Evidence
+
+- private WS: FAIL
+- account stream: FAIL
+- leverage bracket: FAIL
+- order preflight: REJECTED
+- Safe-To-Add: BLOCK
+
+### UnifiedSignal Evidence
+
+- alerts: PASS WITH NOTE
+- volume_milestone: PASS
+- volume_threshold_milestone: PASS
+
+### Desktop Evidence
+
+- packaged launch: PASS
+- window: PASS
+- clean shutdown note: PASS WITH NOTE
+
+### Safety Evidence
+
+- order-safety: PASS
+- live-readiness: PASS
+
+### Known Gaps
+
+- PR-33D standalone volume arrays were absent in that snapshot, although they were already proven in PR-32B.1.
+- Live submit-path preflight binding was still unproven in the validated evidence set.
+- Full clean-start smoke, native/background client validation, and legacy compatibility watch were still outstanding in the broader release ledger.
+
+Final verdict: PAPER/DESKTOP BETA_CANDIDATE; LIVE/TESTNET BLOCKED
 
 ## What Was Already Implemented
 
@@ -1734,6 +1804,18 @@ Every completed task should end with:
 - What not to touch next: ...
 
 ## Next Best Tasks
+
+### Paper/Desktop Beta
+
+Status: BETA_CANDIDATE.
+Why: packaged runtime clean start, backend health, WS snapshot and UnifiedSignal transport are validated.
+Remaining watch items: legacy compatibility deprecation readiness, desktop polish and broader workflow hardening.
+
+### Live/Testnet Beta
+
+Status: BLOCKED.
+Why: configured testnet retest failed on private account stream and leverage bracket lookup, and preflight rejected safely with `account_connection`, `max_leverage`, and `margin_available`.
+Blocked until: private account stream and leverage bracket lookup pass cleanly on configured testnet.
 
 ### 1. Run P0.3-A1 maxLeverage runtime smoke
 
