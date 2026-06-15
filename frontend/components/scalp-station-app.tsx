@@ -17165,6 +17165,141 @@ function CostOfMistakesCard({
   );
 }
 
+const strategyRatingBadgeClass = (rating: StrategyRating): string => {
+  if (rating === "A") {
+    return getDecisionVisual("GOOD").badgeClass;
+  }
+
+  if (rating === "B") {
+    return getDecisionVisual("READY").badgeClass;
+  }
+
+  if (rating === "C") {
+    return getDecisionVisual("WAIT").badgeClass;
+  }
+
+  if (rating === "D") {
+    return getDecisionVisual("BLOCKED").badgeClass;
+  }
+
+  return "border-white/10 bg-white/5 text-slate-300";
+};
+
+function StrategyScorecardCard({
+  scorecard
+}: {
+  scorecard: StrategyScorecard;
+}) {
+  return (
+    <section className={`rounded-lg border p-3 ${meaningFirstCardClasses(scorecard.tone)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+            {scorecard.bucketLabel}
+          </div>
+          <div className="mt-1 text-sm font-medium text-slate-100">{scorecard.strategyName}</div>
+          <div className="mt-1 text-xs text-slate-500">{scorecard.recommendation}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${strategyRatingBadgeClass(scorecard.rating)}`}>
+            Rating: {scorecard.rating}
+          </span>
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${playbookConfidenceBadgeClass(scorecard.confidence)}`}>
+            Confidence: {scorecard.confidence}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <ReviewFact label="Trades" value={String(scorecard.trades)} />
+        <ReviewFact label="Win Rate" value={formatStatsPercent(scorecard.winRatePct)} />
+        <ReviewFact label="Average Result" value={formatJournalPnlMetric(scorecard.avgResult)} />
+        <ReviewFact label="Risk Quality" value={scorecard.riskQuality} />
+      </div>
+
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <ReviewFact
+          label="Review Coverage"
+          value={scorecard.reviewCoverage !== null ? formatReviewCompleteness(scorecard.reviewCoverage) : "--"}
+        />
+        <ReviewFact
+          label="Replay Coverage"
+          value={scorecard.replayCoverage !== null ? formatReviewCompleteness(scorecard.replayCoverage) : "--"}
+        />
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {scorecard.evidenceRows.map((row) => (
+          <div
+            key={`${scorecard.id}:${row}`}
+            className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200"
+          >
+            {row}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function StrategyComparisonSection({
+  comparison
+}: {
+  comparison: TraderLearningCard["strategyComparison"];
+}) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-black/20 p-3">
+      <div>
+        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          Strategy Comparison
+        </div>
+        <div className="mt-1 text-xs text-slate-500">
+          Compare the strongest, weakest, most trusted, and least-proven strategy buckets.
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-md border border-positive/25 bg-positive/5 px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Best Strategy</div>
+          <div className="mt-2 text-sm font-medium text-slate-100">
+            {comparison.best?.strategyName ?? "More data needed"}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {comparison.best ? `${comparison.best.rating} | ${comparison.best.confidence}` : "No trusted positive strategy yet."}
+          </div>
+        </div>
+        <div className="rounded-md border border-negative/25 bg-negative/5 px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Weakest Strategy</div>
+          <div className="mt-2 text-sm font-medium text-slate-100">
+            {comparison.weakest?.strategyName ?? "More data needed"}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {comparison.weakest ? `${comparison.weakest.rating} | ${comparison.weakest.confidence}` : "No trusted negative strategy yet."}
+          </div>
+        </div>
+        <div className="rounded-md border border-accent/25 bg-accent/5 px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Most Trusted</div>
+          <div className="mt-2 text-sm font-medium text-slate-100">
+            {comparison.mostTrusted?.strategyName ?? "More data needed"}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {comparison.mostTrusted ? comparison.mostTrusted.confidence : "No high-confidence bucket yet."}
+          </div>
+        </div>
+        <div className="rounded-md border border-caution/25 bg-caution/5 px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Needs More Data</div>
+          <div className="mt-2 text-sm font-medium text-slate-100">
+            {comparison.needsData?.strategyName ?? "No obvious low-confidence positive bucket"}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {comparison.needsData ? comparison.needsData.confidence : "Nothing promising is waiting on more evidence right now."}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 const humanizeJournalBucketKey = (
   value: string,
   kind: "setup" | "verdict" | "symbol" | "side"
@@ -17458,6 +17593,13 @@ type TraderLearningCard = {
   };
   mistakeTimeline: string[];
   weakMistakeWarnings: string[];
+  strategyScorecards: StrategyScorecard[];
+  strategyComparison: {
+    best: StrategyScorecard | null;
+    weakest: StrategyScorecard | null;
+    mostTrusted: StrategyScorecard | null;
+    needsData: StrategyScorecard | null;
+  };
 };
 
 type PlaybookConfidenceLevel = "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT DATA";
@@ -17501,6 +17643,26 @@ type DetectedMistake = {
   summary: string;
   evidence: string[];
   kind: "process" | "pattern";
+};
+
+type StrategyRating = "A" | "B" | "C" | "D" | "INSUFFICIENT DATA";
+
+type StrategyScorecard = {
+  id: string;
+  bucketLabel: string;
+  strategyName: string;
+  confidence: PlaybookConfidenceLevel;
+  rating: StrategyRating;
+  trades: number;
+  winRatePct: number;
+  avgResult: number;
+  totalResult: number;
+  riskQuality: string;
+  reviewCoverage: number | null;
+  replayCoverage: number | null;
+  recommendation: string;
+  evidenceRows: string[];
+  tone: MeaningFirstTone;
 };
 
 const clampLearningScore = (value: number): number => Math.max(0, Math.min(100, Math.round(value)));
@@ -17652,6 +17814,112 @@ const evaluatePlaybookPattern = (
             ? "neutral"
             : "caution"
         : "caution"
+  };
+};
+
+const buildStrategyRecommendation = (rating: StrategyRating): string => {
+  if (rating === "A") {
+    return "Repeat this setup with normal risk.";
+  }
+
+  if (rating === "B") {
+    return "Keep trading this setup, but collect more reviews.";
+  }
+
+  if (rating === "C") {
+    return "Trade smaller until results become clearer.";
+  }
+
+  if (rating === "D") {
+    return "Avoid this setup until performance improves.";
+  }
+
+  return "More completed trades are needed.";
+};
+
+const buildStrategyScorecard = (
+  pattern: EvaluatedPlaybookPattern,
+  snapshot: KnowledgeLayerSnapshot | null,
+  attachedMistakeSeverity: MistakeSeverity | null
+): StrategyScorecard => {
+  const reviewCoverage = snapshot?.reviewCompleteness.averageScore ?? null;
+  const replayCoverage = snapshot?.replayCoverage.coveragePct ?? null;
+  const rating: StrategyRating =
+    pattern.confidence === "INSUFFICIENT DATA"
+      ? "INSUFFICIENT DATA"
+      : pattern.confidence === "LOW"
+        ? "INSUFFICIENT DATA"
+        : pattern.avgPnl < 0
+          ? "D"
+          : pattern.confidence === "HIGH" &&
+              pattern.winRatePct >= 55 &&
+              (reviewCoverage ?? 0) >= 70 &&
+              (replayCoverage ?? 0) >= 70 &&
+              attachedMistakeSeverity !== "HIGH"
+            ? "A"
+            : pattern.avgPnl > 0
+              ? "B"
+              : Math.abs(pattern.avgPnl) < 0.25
+                ? "C"
+                : "D";
+  const riskQuality =
+    rating === "A"
+      ? "Good"
+      : rating === "B"
+        ? "Acceptable"
+        : rating === "C"
+          ? "Mixed"
+          : rating === "D"
+            ? "Weak"
+            : "Developing";
+  const evidenceRows = [
+    pattern.avgPnl > 0
+      ? `Positive average result: ${formatJournalPnlMetric(pattern.avgPnl)}.`
+      : pattern.avgPnl < 0
+        ? `Negative average result: ${formatJournalPnlMetric(pattern.avgPnl)}.`
+        : "Average result is currently flat.",
+    pattern.totalTrades >= 10
+      ? `Enough sample size: ${pattern.totalTrades} completed trades.`
+      : pattern.totalTrades >= 5
+        ? `Moderate sample size: ${pattern.totalTrades} completed trades.`
+        : `Only ${pattern.totalTrades} completed trade${pattern.totalTrades === 1 ? "" : "s"}.`,
+    reviewCoverage !== null && replayCoverage !== null
+      ? reviewCoverage >= 70 && replayCoverage >= 70
+        ? `Coverage is strong: ${formatReviewCompleteness(reviewCoverage)} review and ${formatReviewCompleteness(replayCoverage)} replay.`
+        : `Coverage needs work: ${formatReviewCompleteness(reviewCoverage)} review and ${formatReviewCompleteness(replayCoverage)} replay.`
+      : "Coverage data is still loading."
+  ];
+
+  return {
+    id: `${pattern.kind}:${pattern.key}`,
+    bucketLabel:
+      pattern.kind === "setup"
+        ? "Setup Type"
+        : pattern.kind === "side"
+          ? "Side"
+          : "Opportunity Verdict",
+    strategyName: pattern.label,
+    confidence: pattern.confidence,
+    rating,
+    trades: pattern.totalTrades,
+    winRatePct: pattern.winRatePct,
+    avgResult: pattern.avgPnl,
+    totalResult: pattern.totalPnl,
+    riskQuality,
+    reviewCoverage,
+    replayCoverage,
+    recommendation: buildStrategyRecommendation(rating),
+    evidenceRows,
+    tone:
+      rating === "A"
+        ? "positive"
+        : rating === "B"
+          ? "neutral"
+          : rating === "C"
+            ? "neutral"
+            : rating === "D"
+              ? "caution"
+              : "neutral"
   };
 };
 
@@ -18098,6 +18366,67 @@ const buildTraderLearningCard = (
   }
 
   const allDetectedMistakes = [...patternMistakes, ...processMistakes];
+  const strategyScorecards = [...setupPatterns, ...sidePatterns, ...verdictPatterns]
+    .map((pattern) =>
+      buildStrategyScorecard(
+        pattern,
+        snapshot,
+        pattern.kind === "setup" && weakestSetup?.key === pattern.key
+          ? "HIGH"
+          : pattern.kind === "side" && weakestSide?.key === pattern.key
+            ? "HIGH"
+            : pattern.kind === "verdict" && weakestVerdict?.key === pattern.key
+              ? "MEDIUM"
+              : null
+      )
+    )
+    .sort((left, right) => {
+      const ratingRank: Record<StrategyRating, number> = {
+        "A": 4,
+        "B": 3,
+        "C": 2,
+        "D": 1,
+        "INSUFFICIENT DATA": 0
+      };
+
+      return (
+        ratingRank[right.rating] - ratingRank[left.rating] ||
+        playbookConfidenceRank[right.confidence] - playbookConfidenceRank[left.confidence] ||
+        right.avgResult - left.avgResult ||
+        right.trades - left.trades
+      );
+    });
+  const strategyComparison = {
+    best:
+      strategyScorecards.find((scorecard) => scorecard.rating === "A") ??
+      strategyScorecards.find((scorecard) => scorecard.rating === "B") ??
+      null,
+    weakest:
+      strategyScorecards
+        .filter((scorecard) => scorecard.rating === "D")
+        .sort(
+          (left, right) =>
+            playbookConfidenceRank[right.confidence] - playbookConfidenceRank[left.confidence] ||
+            left.avgResult - right.avgResult
+        )[0] ?? null,
+    mostTrusted:
+      strategyScorecards
+        .slice()
+        .sort(
+          (left, right) =>
+            playbookConfidenceRank[right.confidence] - playbookConfidenceRank[left.confidence] ||
+            right.trades - left.trades ||
+            right.avgResult - left.avgResult
+        )[0] ?? null,
+    needsData:
+      strategyScorecards
+        .filter(
+          (scorecard) =>
+            (scorecard.confidence === "LOW" || scorecard.confidence === "INSUFFICIENT DATA") &&
+            scorecard.avgResult > 0
+        )
+        .sort((left, right) => right.avgResult - left.avgResult || right.trades - left.trades)[0] ?? null
+  } satisfies TraderLearningCard["strategyComparison"];
   const mistakeImpactScore = (mistake: DetectedMistake): number =>
     (mistake.avgResult !== null ? Math.abs(mistake.avgResult) * Math.max(1, mistake.occurrences) : 0) +
     mistakeSeverityRank[mistake.severity] * 3 +
@@ -18201,7 +18530,9 @@ const buildTraderLearningCard = (
       repeatingErrors: [],
       fixFirst,
       mistakeTimeline,
-      weakMistakeWarnings
+      weakMistakeWarnings,
+      strategyScorecards,
+      strategyComparison
     };
   }
 
@@ -18246,7 +18577,9 @@ const buildTraderLearningCard = (
     repeatingErrors,
     fixFirst,
     mistakeTimeline,
-    weakMistakeWarnings
+    weakMistakeWarnings,
+    strategyScorecards,
+    strategyComparison
   };
 };
 
@@ -18765,6 +19098,33 @@ function KnowledgeWorkspacePanel({
           )}
 
           <TraderScoreCard learning={learningCard} />
+
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Strategy Scorecards
+            </div>
+            <PlainMeaning>
+              Compare each saved strategy bucket by evidence, result quality, and recommended next action.
+            </PlainMeaning>
+            <div className="mt-2 grid gap-3 xl:grid-cols-2">
+              {learningCard.strategyScorecards.length > 0 ? (
+                learningCard.strategyScorecards.map((scorecard) => (
+                  <StrategyScorecardCard key={scorecard.id} scorecard={scorecard} />
+                ))
+              ) : (
+                <MeaningFirstSummaryCard
+                  eyebrow="Strategy Scorecards"
+                  title="More completed trades are needed"
+                  description="The scorecards will appear once there are enough saved strategy buckets to evaluate."
+                  badge="History Building"
+                  tone="neutral"
+                  items={["More completed trades are needed."]}
+                />
+              )}
+            </div>
+          </div>
+
+          <StrategyComparisonSection comparison={learningCard.strategyComparison} />
 
           <div>
             <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
