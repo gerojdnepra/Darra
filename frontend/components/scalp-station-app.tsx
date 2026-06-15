@@ -17091,6 +17091,80 @@ function BestSupportedPatternsSection({
   );
 }
 
+const mistakeSeverityRank: Record<MistakeSeverity, number> = {
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3
+};
+
+const mistakeSeverityBadgeClass = (severity: MistakeSeverity): string => {
+  if (severity === "HIGH") {
+    return getRiskVisual("HIGH").badgeClass;
+  }
+
+  if (severity === "MEDIUM") {
+    return getRiskVisual("MEDIUM").badgeClass;
+  }
+
+  return "border-white/10 bg-white/5 text-slate-300";
+};
+
+function CostOfMistakesCard({
+  mistake
+}: {
+  mistake: DetectedMistake | null;
+}) {
+  if (!mistake) {
+    return (
+      <MeaningFirstSummaryCard
+        eyebrow="Cost Of Mistakes"
+        title="More completed trades are needed"
+        description="The system needs more saved mistakes before it can identify the largest drag with confidence."
+        badge="History Building"
+        tone="neutral"
+        items={["More completed trades are needed."]}
+      />
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-caution/25 bg-caution/5 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Cost Of Mistakes</div>
+          <div className="mt-1 text-sm font-medium text-slate-100">{mistake.label}</div>
+          <div className="mt-1 text-xs text-slate-500">{mistake.summary}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${mistakeSeverityBadgeClass(mistake.severity)}`}>
+            {mistake.severity}
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-300">
+            Impact: {mistake.impact}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <ReviewFact label="Occurrences" value={String(mistake.occurrences)} />
+        <ReviewFact label="Average Result" value={mistake.avgResult !== null ? formatJournalPnlMetric(mistake.avgResult) : "--"} />
+        <ReviewFact label="Confidence" value={mistake.confidence} />
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {mistake.evidence.map((item) => (
+          <div
+            key={`${mistake.id}:${item}`}
+            className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200"
+          >
+            {item}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 const humanizeJournalBucketKey = (
   value: string,
   kind: "setup" | "verdict" | "symbol" | "side"
@@ -17375,6 +17449,15 @@ type TraderLearningCard = {
   weeklyFocus: string;
   bestSupportedPatterns: EvaluatedPlaybookPattern[];
   weakEvidenceWarnings: string[];
+  topMistakes: DetectedMistake[];
+  costOfMistake: DetectedMistake | null;
+  repeatingErrors: DetectedMistake[];
+  fixFirst: {
+    title: string;
+    why: string;
+  };
+  mistakeTimeline: string[];
+  weakMistakeWarnings: string[];
 };
 
 type PlaybookConfidenceLevel = "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT DATA";
@@ -17403,6 +17486,21 @@ type PersonalPlaybookSummary = {
   items: string[];
   confidence: PlaybookConfidenceLevel;
   evidence: string[];
+};
+
+type MistakeSeverity = "HIGH" | "MEDIUM" | "LOW";
+
+type DetectedMistake = {
+  id: string;
+  label: string;
+  severity: MistakeSeverity;
+  confidence: PlaybookConfidenceLevel;
+  occurrences: number;
+  avgResult: number | null;
+  impact: "HIGH" | "MODERATE" | "LOW";
+  summary: string;
+  evidence: string[];
+  kind: "process" | "pattern";
 };
 
 const clampLearningScore = (value: number): number => Math.max(0, Math.min(100, Math.round(value)));
@@ -17557,6 +17655,71 @@ const evaluatePlaybookPattern = (
   };
 };
 
+const createPatternMistake = (
+  id: string,
+  label: string,
+  pattern: EvaluatedPlaybookPattern
+): DetectedMistake => {
+  const severity: MistakeSeverity =
+    pattern.confidence === "HIGH" && (pattern.totalTrades >= 10 || pattern.avgPnl <= -2)
+      ? "HIGH"
+      : pattern.confidence === "MEDIUM" && (pattern.totalTrades >= 5 || pattern.avgPnl <= -1)
+        ? "MEDIUM"
+        : "LOW";
+
+  return {
+    id,
+    label,
+    severity,
+    confidence: pattern.confidence,
+    occurrences: pattern.totalTrades,
+    avgResult: pattern.avgPnl,
+    impact: severity === "HIGH" ? "HIGH" : severity === "MEDIUM" ? "MODERATE" : "LOW",
+    summary: `${pattern.label} has the weakest saved expectancy among trusted patterns.`,
+    evidence: [
+      `${pattern.totalTrades} completed trade${pattern.totalTrades === 1 ? "" : "s"}`,
+      `${formatStatsPercent(pattern.winRatePct)} win rate`,
+      `${formatJournalPnlMetric(pattern.avgPnl)} average result`,
+      ...pattern.evidence
+    ],
+    kind: "pattern"
+  };
+};
+
+const createProcessMistake = ({
+  id,
+  label,
+  occurrences,
+  summary,
+  evidence,
+  confidence = "HIGH",
+  avgResult = null
+}: {
+  id: string;
+  label: string;
+  occurrences: number;
+  summary: string;
+  evidence: string[];
+  confidence?: PlaybookConfidenceLevel;
+  avgResult?: number | null;
+}): DetectedMistake => {
+  const severity: MistakeSeverity =
+    occurrences >= 10 ? "HIGH" : occurrences >= 5 ? "MEDIUM" : "LOW";
+
+  return {
+    id,
+    label,
+    severity,
+    confidence,
+    occurrences,
+    avgResult,
+    impact: occurrences >= 10 ? "HIGH" : occurrences >= 5 ? "MODERATE" : "LOW",
+    summary,
+    evidence,
+    kind: "process"
+  };
+};
+
 const buildTraderLearningCard = (
   snapshot: KnowledgeLayerSnapshot | null,
   analytics: JournalAnalyticsPayload | null,
@@ -17639,6 +17802,26 @@ const buildTraderLearningCard = (
     .map((pattern) =>
       `${pattern.label} looks profitable, but confidence is ${pattern.confidence}. ${pattern.evidenceSummary}`
     );
+  const weakMistakeWarnings = [
+    ...setupPatterns
+      .filter((pattern) => pattern.avgPnl < 0 && !isActionablePlaybookConfidence(pattern.confidence))
+      .map(
+        (pattern) =>
+          `${pattern.label} results are weak, but confidence is ${pattern.confidence}. More completed trades are needed.`
+      ),
+    ...sidePatterns
+      .filter((pattern) => pattern.avgPnl < 0 && !isActionablePlaybookConfidence(pattern.confidence))
+      .map(
+        (pattern) =>
+          `${pattern.label} results are weak, but confidence is ${pattern.confidence}. More completed trades are needed.`
+      )
+  ].slice(0, 3);
+  const missingReviewOccurrences = snapshot?.chainHealth.missingLinkCounts["review"] ?? 0;
+  const missingReplayOccurrences = snapshot?.replayCoverage.notReplayable ?? 0;
+  const documentedTrades =
+    entries.filter((entry) => (entry.notes?.trim().length ?? 0) > 0 || entry.tags.length > 0).length;
+  const missingDocumentationOccurrences = Math.max(0, entries.length - documentedTrades);
+  const incompleteChainOccurrences = snapshot?.chainHealth.partialChains ?? 0;
 
   const components = [
     {
@@ -17836,6 +18019,146 @@ const buildTraderLearningCard = (
     );
   }
 
+  const processMistakes: DetectedMistake[] = [];
+
+  if (missingReviewOccurrences > 0) {
+    processMistakes.push(
+      createProcessMistake({
+        id: "missing-review-follow-up",
+        label: "Skipping Reviews",
+        occurrences: missingReviewOccurrences,
+        summary: "Trades are closing without a complete saved review follow-up.",
+        evidence: [
+          `${missingReviewOccurrences} missing review link${missingReviewOccurrences === 1 ? "" : "s"}`,
+          `${snapshot?.chainHealth.totalReviews ?? 0} total saved review chain${(snapshot?.chainHealth.totalReviews ?? 0) === 1 ? "" : "s"}`
+        ]
+      })
+    );
+  }
+
+  if (missingReplayOccurrences > 0) {
+    processMistakes.push(
+      createProcessMistake({
+        id: "missing-replay-coverage",
+        label: "Missing Replay Coverage",
+        occurrences: missingReplayOccurrences,
+        summary: "Some closed trades cannot be replayed step by step.",
+        evidence: [
+          `${missingReplayOccurrences} non-replayable trade chain${missingReplayOccurrences === 1 ? "" : "s"}`,
+          `${snapshot?.replayCoverage.replayable ?? 0} replayable chain${(snapshot?.replayCoverage.replayable ?? 0) === 1 ? "" : "s"}`
+        ]
+      })
+    );
+  }
+
+  if (missingDocumentationOccurrences > 0) {
+    processMistakes.push(
+      createProcessMistake({
+        id: "missing-documentation",
+        label: "Documentation Missing",
+        occurrences: missingDocumentationOccurrences,
+        summary: "Closed trades are missing notes or tags that would help later learning.",
+        evidence: [
+          `${missingDocumentationOccurrences} trade${missingDocumentationOccurrences === 1 ? "" : "s"} without notes or tags`,
+          `${documentedTrades} documented trade${documentedTrades === 1 ? "" : "s"}`
+        ]
+      })
+    );
+  }
+
+  if (incompleteChainOccurrences > 0) {
+    processMistakes.push(
+      createProcessMistake({
+        id: "incomplete-trade-chains",
+        label: "Incomplete Trade Chains",
+        occurrences: incompleteChainOccurrences,
+        summary: "Too many trade stories break before the full learning chain is saved.",
+        evidence: [
+          `${incompleteChainOccurrences} partial chain${incompleteChainOccurrences === 1 ? "" : "s"}`,
+          `${snapshot?.chainHealth.completeChains ?? 0} complete chain${(snapshot?.chainHealth.completeChains ?? 0) === 1 ? "" : "s"}`
+        ]
+      })
+    );
+  }
+
+  const patternMistakes: DetectedMistake[] = [];
+
+  if (weakestSetup) {
+    patternMistakes.push(createPatternMistake("weak-setup-pattern", `Weak Setup Pattern (${weakestSetup.label})`, weakestSetup));
+  }
+
+  if (weakestSide) {
+    patternMistakes.push(
+      createPatternMistake(
+        "weak-side-pattern",
+        weakestSide.label.toLowerCase().includes("short") ? "Weak Short Trades" : `Weak ${weakestSide.label}`,
+        weakestSide
+      )
+    );
+  }
+
+  const allDetectedMistakes = [...patternMistakes, ...processMistakes];
+  const mistakeImpactScore = (mistake: DetectedMistake): number =>
+    (mistake.avgResult !== null ? Math.abs(mistake.avgResult) * Math.max(1, mistake.occurrences) : 0) +
+    mistakeSeverityRank[mistake.severity] * 3 +
+    mistake.occurrences * 0.25;
+  const topMistakes = allDetectedMistakes
+    .slice()
+    .sort(
+      (left, right) =>
+        mistakeSeverityRank[right.severity] - mistakeSeverityRank[left.severity] ||
+        mistakeImpactScore(right) - mistakeImpactScore(left) ||
+        right.occurrences - left.occurrences
+    )
+    .slice(0, 4);
+  const costOfMistake =
+    allDetectedMistakes
+      .slice()
+      .sort((left, right) => mistakeImpactScore(right) - mistakeImpactScore(left))[0] ?? null;
+  const repeatingErrors = processMistakes
+    .slice()
+    .sort((left, right) => right.occurrences - left.occurrences)
+    .slice(0, 3);
+  const strongestMistake = topMistakes[0] ?? null;
+  const fixFirst =
+    strongestMistake !== null
+      ? {
+          title:
+            strongestMistake.id === "missing-review-follow-up"
+              ? "Complete reviews immediately after closing trades."
+              : strongestMistake.id === "missing-replay-coverage"
+                ? "Improve replay coverage on every closed trade."
+                : strongestMistake.id === "missing-documentation"
+                  ? "Add one note or tag to every closed trade."
+                  : strongestMistake.id === "incomplete-trade-chains"
+                    ? "Keep the full signal-to-review chain intact."
+                    : strongestMistake.id === "weak-side-pattern"
+                      ? "Reduce weak side exposure until the edge improves."
+                      : "Avoid the weakest setup pattern until the evidence improves.",
+          why:
+            strongestMistake.kind === "pattern"
+              ? `${strongestMistake.label} is the strongest trusted negative pattern right now.`
+              : `${strongestMistake.label} appears often enough to slow multiple learning systems.`
+        }
+      : {
+          title: "More completed trades are needed.",
+          why: "The system does not have enough trusted mistakes yet to prioritize a fix."
+        };
+  const strongestHabit = habits
+    .filter((habit) => typeof habit.score === "number")
+    .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))[0] ?? null;
+  const mistakeTimeline = [
+    repeatingErrors[0]
+      ? `Most common issue: ${repeatingErrors[0].label} (${repeatingErrors[0].occurrences} occurrences).`
+      : "Most common issue: More completed trades are needed.",
+    costOfMistake
+      ? `Largest performance drag: ${costOfMistake.label}.`
+      : "Largest performance drag: More completed trades are needed.",
+    strongestHabit
+      ? `Strongest process right now: ${strongestHabit.label} (${clampLearningScore(strongestHabit.score ?? 0)}%).`
+      : "Strongest process right now: Still building."
+  ];
+
   const weeklyFocus =
     snapshot && snapshot.reviewCompleteness.averageScore < 60
       ? "Complete reviews immediately after closing trades."
@@ -17872,7 +18195,13 @@ const buildTraderLearningCard = (
       patterns: ["More completed trades are needed."],
       weeklyFocus: "Keep closing and reviewing trades so Trader Score can stabilize.",
       bestSupportedPatterns: [],
-      weakEvidenceWarnings
+      weakEvidenceWarnings,
+      topMistakes: [],
+      costOfMistake: null,
+      repeatingErrors: [],
+      fixFirst,
+      mistakeTimeline,
+      weakMistakeWarnings
     };
   }
 
@@ -17911,7 +18240,13 @@ const buildTraderLearningCard = (
           : ["More completed trades are needed."],
     weeklyFocus,
     bestSupportedPatterns,
-    weakEvidenceWarnings
+    weakEvidenceWarnings,
+    topMistakes,
+    costOfMistake,
+    repeatingErrors,
+    fixFirst,
+    mistakeTimeline,
+    weakMistakeWarnings
   };
 };
 
@@ -18465,6 +18800,57 @@ function KnowledgeWorkspacePanel({
           </div>
 
           <MeaningFirstSummaryCard
+            eyebrow="Mistakes"
+            title="Top Mistakes"
+            description="Recurring weak behaviors pulled from saved review, replay, documentation, and trusted negative patterns."
+            badge={learningCard.topMistakes.length > 0 ? `${learningCard.topMistakes.length} active` : "History Building"}
+            tone={learningCard.topMistakes.length > 0 ? "caution" : "neutral"}
+            items={
+              learningCard.topMistakes.length > 0
+                ? learningCard.topMistakes.map(
+                    (mistake, index) =>
+                      `${index + 1}. ${mistake.label} (${mistake.severity})`
+                  )
+                : ["More completed trades are needed."]
+            }
+          />
+
+          <CostOfMistakesCard mistake={learningCard.costOfMistake} />
+
+          <ReviewCoachSectionCard
+            section={{
+              title: "REPEATING ERRORS",
+              tone: "improve",
+              items:
+                learningCard.repeatingErrors.length > 0
+                  ? learningCard.repeatingErrors.map(
+                      (mistake) => `${mistake.label} - ${mistake.occurrences} occurrence${mistake.occurrences === 1 ? "" : "s"}`
+                    )
+                  : ["More completed trades are needed."]
+            }}
+          />
+
+          <MeaningFirstSummaryCard
+            eyebrow="Fix First"
+            title={learningCard.fixFirst.title}
+            description={learningCard.fixFirst.why}
+            badge={learningCard.topMistakes[0]?.severity ?? "History Building"}
+            tone={learningCard.topMistakes.length > 0 ? "caution" : "neutral"}
+            items={[learningCard.fixFirst.why]}
+          />
+
+          {learningCard.weakMistakeWarnings.length > 0 ? (
+            <MeaningFirstSummaryCard
+              eyebrow="Confidence Check"
+              title="Some weak-looking mistakes still need more evidence"
+              description="Negative patterns with low confidence are shown as warnings, not as major mistakes."
+              badge="Low Confidence"
+              tone="neutral"
+              items={learningCard.weakMistakeWarnings}
+            />
+          ) : null}
+
+          <MeaningFirstSummaryCard
             eyebrow="Learning Patterns"
             title="Observed Pattern"
             description="Historical observations shown only when the supporting evidence is strong enough to trust."
@@ -18477,6 +18863,15 @@ function KnowledgeWorkspacePanel({
 
           <ReviewCoachSectionCard
             section={{ title: "WEEKLY FOCUS", tone: "repeat", items: [learningCard.weeklyFocus] }}
+          />
+
+          <MeaningFirstSummaryCard
+            eyebrow="Mistake Timeline"
+            title="Recent Learning"
+            description="A compact summary of the issues showing up most often in saved history."
+            badge={learningCard.topMistakes.length > 0 ? "Learning Active" : "History Building"}
+            tone={learningCard.topMistakes.length > 0 ? "caution" : "neutral"}
+            items={learningCard.mistakeTimeline}
           />
 
           <MeaningFirstSummaryCard {...lessonSummary} />
