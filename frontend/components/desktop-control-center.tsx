@@ -404,9 +404,9 @@ const controlCenterCopy = {
     monitorRoleRisk: "Risk",
     monitorRoleReview: "Review",
     legacyWorkspacePresetsEyebrow: "Advanced legacy dashboard presets",
-    legacyWorkspacePresetsTitle: "Advanced Legacy Workspace presets",
+    legacyWorkspacePresetsTitle: "Optional Legacy Workspace Presets",
     legacyWorkspacePresetsDescription:
-      "Experimental single-window presets. They only change visible blocks inside the legacy dashboard.",
+      "Optional single-window presets. They only change visible blocks inside the legacy dashboard.",
     legacyWorkspacePresetsCustom: "Custom",
     legacyWorkspacePresetsBlocks: "workflow blocks",
     modelMultilingual: "multilingual",
@@ -623,9 +623,9 @@ const controlCenterCopy = {
     ,monitorRoleRisk: "Risk"
     ,monitorRoleReview: "Review"
     ,legacyWorkspacePresetsEyebrow: "Advanced legacy dashboard presets"
-    ,legacyWorkspacePresetsTitle: "Advanced Legacy Workspace presets"
+    ,legacyWorkspacePresetsTitle: "Optional Legacy Workspace Presets"
     ,legacyWorkspacePresetsDescription:
-      "Experimental single-window presets. They only change visible blocks inside the legacy dashboard."
+      "Optional single-window presets. They only change visible blocks inside the legacy dashboard."
     ,legacyWorkspacePresetsCustom: "Custom"
     ,legacyWorkspacePresetsBlocks: "workflow blocks"
   }

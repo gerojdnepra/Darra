@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { getBiasVisual, getDecisionVisual } from "@/lib/trading-visuals";
 
 export type StatusBadgeStatus = "OK" | "CHECK" | "BLOCKED" | "WAITING" | "UNKNOWN";
 export type StatusBadgeTone = "positive" | "caution" | "negative" | "neutral";
@@ -21,10 +22,10 @@ const statusTone: Record<StatusBadgeStatus, StatusBadgeTone> = {
 };
 
 const toneClasses: Record<StatusBadgeTone, string> = {
-  positive: "border-positive/35 bg-positive/10 text-positive",
-  caution: "border-caution/35 bg-caution/10 text-caution",
-  negative: "border-negative/35 bg-negative/10 text-negative",
-  neutral: "border-white/10 bg-white/5 text-slate-400"
+  positive: getDecisionVisual("OK").badgeClass,
+  caution: getDecisionVisual("WAIT").badgeClass,
+  negative: getDecisionVisual("BLOCKED").badgeClass,
+  neutral: getBiasVisual("NEUTRAL").badgeClass
 };
 
 const sizeClasses: Record<StatusBadgeSize, string> = {

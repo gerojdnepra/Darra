@@ -9,18 +9,20 @@ export const isFreshOpenInterest = (flow: MarketFlowState | null | undefined): b
 
 export const formatOpenInterestFreshness = (flow: MarketFlowState | null | undefined): string => {
   if (!flow) {
-    return "OI waiting";
+    return "Open Interest (OI) waiting";
   }
 
   if (flow.openInterest.status === "UNAVAILABLE") {
-    return "OI unavailable";
+    return "Open Interest (OI) unavailable";
   }
 
   if (flow.openInterest.status === "STALE") {
     const ageMinutes =
       flow.openInterest.ageMs !== null ? Math.max(1, Math.round(flow.openInterest.ageMs / 60_000)) : null;
-    return ageMinutes !== null ? `OI stale ${minuteFormatter.format(ageMinutes)}m` : "OI stale";
+    return ageMinutes !== null
+      ? `Open Interest (OI) stale ${minuteFormatter.format(ageMinutes)}m`
+      : "Open Interest (OI) stale";
   }
 
-  return `OI 5m ${flow.openInterest.oiChange5m.toFixed(2)}%`;
+  return `Open Interest (OI) 5m ${flow.openInterest.oiChange5m.toFixed(2)}%`;
 };

@@ -105,14 +105,14 @@ export const defaultScenarioWorkspaceId: DesktopScenarioWorkspaceId = "beta";
 export const scenarioWorkspaces: Record<DesktopScenarioWorkspaceId, DesktopScenarioWorkspace> = {
   beta: {
     id: "beta",
-    label: "Beta Workflow",
+    label: "Beta Trader Workflow",
     description:
       "Default beta path with only the core trader chain: signal, decision, context, execution, positions and review.",
     windows: ["screener", "alerts", "chartPanel", "account", "activeTrades", "tradeJournal"]
   },
   scalping: {
     id: "scalping",
-    label: "Advanced Scalping",
+    label: "Advanced Scalping Workspace",
     description:
       "Advanced fast signal-to-execution flow with extra watchlist, context and risk windows.",
     windows: [
@@ -130,7 +130,7 @@ export const scenarioWorkspaces: Record<DesktopScenarioWorkspaceId, DesktopScena
   },
   swing: {
     id: "swing",
-    label: "Advanced Swing",
+    label: "Advanced Swing Workspace",
     description:
       "Advanced broader-context workflow with extra story, flow, funding and risk windows.",
     windows: [
@@ -148,7 +148,7 @@ export const scenarioWorkspaces: Record<DesktopScenarioWorkspaceId, DesktopScena
   },
   review: {
     id: "review",
-    label: "Advanced Review",
+    label: "Advanced Review Workspace",
     description:
       "Advanced post-trade analysis with replay, review statistics and knowledge windows.",
     windows: [
@@ -167,7 +167,7 @@ export const scenarioWorkspaces: Record<DesktopScenarioWorkspaceId, DesktopScena
   },
   research: {
     id: "research",
-    label: "Experimental Research",
+    label: "Experimental Research Workspace",
     description:
       "Advanced research workflow with knowledge, telemetry and market context outside the live chain.",
     windows: [
@@ -214,7 +214,7 @@ export const workspacePresetIds: WorkspacePresetId[] = [
 export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   primary: {
     id: "primary",
-    label: "Beta Dashboard Preset",
+    label: "Beta Dashboard",
     description:
       "Legacy single-window version of the beta path: Signal -> Decision -> Context -> Execution -> Positions -> Review.",
     visibleSections: [
@@ -237,7 +237,8 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   trading: {
     id: "trading",
     label: "Advanced Execution Preset",
-    description: "Execution ticket, preflight, Safe-To-Add and readiness as a standalone workflow stage.",
+    description:
+      "Execution ticket, Safety Check, Position Risk and Ready To Enter as a standalone workflow stage.",
     visibleSections: [
       "alerts",
       "decisionStack",
@@ -289,7 +290,7 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   review: {
     id: "review",
     label: "Advanced Review Workspace",
-    description: "Review first, with Replay and Knowledge as review tools.",
+    description: "Trade Summary first, with Replay and Trading Lessons as optional review tools.",
     visibleSections: [
       "tradeJournal",
       "replay",
@@ -319,8 +320,8 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   },
   knowledge: {
     id: "knowledge",
-    label: "Advanced Knowledge Workspace",
-    description: "System memory home for known links, unknown gaps and reconstruction coverage.",
+    label: "Advanced Trading Lessons Workspace",
+    description: "System memory view for saved lessons, missing links and reconstruction coverage.",
     visibleSections: [
       "knowledgeWorkspace",
       "tradeJournal",
@@ -341,7 +342,7 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   chartFirst: {
     id: "chartFirst",
     label: "Advanced Symbol Focus",
-    description: "Advanced signal-first symbol focus with Decision, why-now context, chart, flow and risk.",
+    description: "Optional symbol-first workspace with decision, chart, order flow and risk detail.",
     visibleSections: [
       "screener",
       "alerts",
@@ -444,7 +445,7 @@ export const defaultDashboardPanelLayout: Record<
 > = {
   filters: { colSpan: 3, minHeightPx: 260, x: 12, y: 1220, widthPx: 390, heightPx: 360 },
   screener: { colSpan: 6, minHeightPx: 520, x: 12, y: 112, widthPx: 780, heightPx: 540 },
-  overview: { colSpan: 4, minHeightPx: 180, x: 12, y: 690, widthPx: 500, heightPx: 220 },
+  overview: { colSpan: 4, minHeightPx: 520, x: 12, y: 690, widthPx: 500, heightPx: 760 },
   alerts: { colSpan: 2, minHeightPx: 260, x: 12, y: 896, widthPx: 260, heightPx: 320 },
   socialAuth: { colSpan: 4, minHeightPx: 260, x: 1036, y: 690, widthPx: 528, heightPx: 300 },
   cabinet: { colSpan: 4, minHeightPx: 360, x: 12, y: 1030, widthPx: 500, heightPx: 540 },
@@ -603,11 +604,11 @@ export const desktopModuleLabels: Record<CollapsibleSectionId, string> = {
   riskCenter: "Risk Center",
   correlationHeatmap: "Correlation Heatmap",
   varPanel: "VaR",
-  fundingBasis: "Funding/Basis",
+  fundingBasis: "Funding Rate",
   marketFlow: "Market Flow",
   chartPanel: "Context",
-  decisionStack: "Decision Pipeline",
-  symbolDetailRail: "Why This Matters Now",
+  decisionStack: "Decision Guide",
+  symbolDetailRail: "Why It Matters",
   marketStory: "Signal Story",
   signalIntelligence: "Advanced Signal Intelligence",
   metaRegimeGovernor: "Advanced Meta Regime Governor",
@@ -616,10 +617,10 @@ export const desktopModuleLabels: Record<CollapsibleSectionId, string> = {
   regimePrediction: "Advanced Regime Prediction",
   regimeFeedbackCalibration: "Advanced Regime Feedback Calibration",
   pnlAttribution: "PnL Attribution",
-  signalStatistics: "Review Statistics",
+  signalStatistics: "Advanced Review Statistics",
   learningCenter: "Experimental Research",
   tradeJournal: "Review",
-  knowledgeWorkspace: "Knowledge",
+  knowledgeWorkspace: "Trading Lessons",
   watchlist: "Watchlist",
   volumeMilestones: "100M Volume",
   volumeThresholdMilestones: "1-100M Volume",
@@ -647,10 +648,11 @@ export const desktopModuleLabelsByLanguage: Record<
     riskCenter: "Risk Center",
     correlationHeatmap: "Correlation Heatmap",
     varPanel: "VaR",
-    fundingBasis: "Funding/Basis",
+    fundingBasis: "Funding Rate",
     marketFlow: "Market Flow",
     chartPanel: "Context",
-    symbolDetailRail: "Symbol Detail Rail",
+    decisionStack: "Decision Guide",
+    symbolDetailRail: "Why It Matters",
     signalIntelligence: "Advanced Signal Intelligence",
     metaRegimeGovernor: "Advanced Meta Regime Governor",
     positionRiskOrchestrator: "Position Risk",
@@ -660,7 +662,7 @@ export const desktopModuleLabelsByLanguage: Record<
     pnlAttribution: "PnL Attribution",
     learningCenter: "Experimental Research",
     tradeJournal: "Review",
-    knowledgeWorkspace: "Knowledge",
+    knowledgeWorkspace: "Trading Lessons",
     watchlist: "Р›РёСЃС‚ РЅР°Р±Р»СЋРґРµРЅРёСЏ",
     alerts: "Decision",
     health: "РЎРѕСЃС‚РѕСЏРЅРёРµ С„РёРґР°",

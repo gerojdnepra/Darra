@@ -2,6 +2,13 @@
 
 import { compactUsd, formatPercent } from "@/lib/format";
 import { formatOpenInterestFreshness, isFreshOpenInterest } from "@/lib/open-interest";
+import {
+  explainExecutionBlocker,
+  explainFlowState,
+  explainFundingState,
+  explainOpenInterestState,
+  explainRiskState
+} from "@/lib/trading-language";
 import type {
   FundingSymbolState,
   LiquidationState,
@@ -108,7 +115,7 @@ export function SymbolDetailRail({
   return (
     <aside className="h-full">
       <PanelHeader
-        title="Symbol Detail Rail"
+        title="Why It Matters"
         subtitle={selectedSymbol ? `Why ${selectedSymbol} is in focus` : "Select a symbol to explain focus"}
         moduleId="symbolDetailRail"
         className="items-start"
@@ -171,7 +178,7 @@ function buildRailBlocks({
       {
         title: "Flow confirmation",
         status: "UNKNOWN",
-        summary: "Waiting for price, CVD, OI, buy ratio and liquidation context.",
+        summary: "Waiting for price, order flow, open interest, buy ratio and liquidation context.",
         items: []
       },
       {
@@ -181,7 +188,7 @@ function buildRailBlocks({
         items: []
       },
       {
-        title: "Execution readiness",
+        title: "Ready to enter",
         status: liveSafetyState ? "WATCH" : "UNKNOWN",
         summary: liveSafetyState
           ? `Safety mode ${liveSafetyState.mode}, ready ${liveSafetyState.ready ? "yes" : "no"}.`
@@ -219,10 +226,12 @@ function buildRailBlocks({
     row.liquidation5m > 0 ||
     !!liquidations;
   const flowSignals = [
-    flow ? `CVD slope ${valueOrDash(flow.cvd.slope, 2)} with ${flow.cvd.divergence} divergence` : null,
+    flow
+      ? `Order Flow (CVD) slope ${valueOrDash(flow.cvd.slope, 2)} with ${flow.cvd.divergence} divergence`
+      : null,
     flow
       ? isFreshOpenInterest(flow)
-        ? `OI 5m ${percentOrDash(flow.openInterest.oiChange5m, 2)}`
+        ? `Open Interest (OI) 5m ${percentOrDash(flow.openInterest.oiChange5m, 2)}`
         : formatOpenInterestFreshness(flow)
       : null,
     `Buy ratio ${valueOrDash(row.buyRatio60s, 2)}`,
@@ -256,15 +265,23 @@ function buildRailBlocks({
       ])
     },
     {
-      title: "Flow confirmation",
+      title: "Order flow confirmation",
       status: !hasFlow ? "UNKNOWN" : flowConfirmed ? "GOOD" : "WATCH",
       summary: flowConfirmed
-        ? "Movement has supporting flow context in the current frontend snapshot."
+        ? `${explainFlowState({
+            slope: flow?.cvd.slope,
+            divergence: flow?.cvd.divergence
+          })} ${explainOpenInterestState({
+            status: flow?.openInterest.status ?? null,
+            changePct: flow?.openInterest.oiChange5m,
+            ageMs: flow?.openInterest.ageMs,
+            hasFlow
+          })}`
         : "Flow context is incomplete or mixed; keep it in watch state.",
       items: uniqueItems(flowSignals)
     },
     {
-      title: "Risk blockers",
+      title: "Position risk",
       status:
         criticalWhyNot || capacityBlocked || killSwitchBlocked || spreadBlocked || row.riskLevel === "CRITICAL"
           ? "BLOCKED"
@@ -272,19 +289,26 @@ function buildRailBlocks({
             ? "WATCH"
             : "GOOD",
       summary: capacityBlocked
-        ? `Position capacity blocks adding exposure: ${positionCapacity?.reason ?? "no reason provided"}.`
-        : `Risk level ${row.riskLevel}, spread ${row.spreadBps === null ? "--" : `${row.spreadBps.toFixed(2)} bps`}, funding ${fundingLabel(row, funding)}.`,
+        ? `${explainExecutionBlocker({
+            safeToAddStatus: "BLOCKED",
+            reason: positionCapacity?.reason
+          })} ${positionCapacity?.reason ?? "No reason provided."}`
+        : `${explainRiskState(row.riskLevel)} Funding ${fundingLabel(row, funding)}. ${explainFundingState({
+            rate: fundingValue
+          })}`,
       items: uniqueItems([
         ...whyNotTrade.map((item) =>
           item.value !== undefined ? `${item.label}: ${item.value}` : item.label
         ),
-        positionCapacity ? `Safe-to-add ${positionCapacity.safeToAdd ? "yes" : "no"}: ${positionCapacity.reason}` : "Position capacity waiting",
+        positionCapacity
+          ? `Position risk ${positionCapacity.safeToAdd ? "clear" : "blocked"}: ${positionCapacity.reason}`
+          : "Position risk waiting",
         positionRiskOrchestrator ? `Kill switch ${positionRiskOrchestrator.killSwitchState}` : "Risk orchestrator waiting",
         `Liquidation bias ${row.liquidationBias}`
       ])
     },
     {
-      title: "Execution readiness",
+      title: "Ready to enter",
       status: liveBlocked || capacityBlocked ? "BLOCKED" : !liveSafetyState || !positionCapacity ? "UNKNOWN" : "GOOD",
       summary: liveSafetyState
         ? `Safety mode ${liveSafetyState.mode}, ready ${liveSafetyState.ready ? "yes" : "no"}, kill switch ${liveSafetyState.killSwitchActive ? "active" : "clear"}.`

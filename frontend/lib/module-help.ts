@@ -31,7 +31,7 @@ export type ModuleHelpId =
 export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
   decisionDashboard: {
     title: "Workflow Dashboard",
-    shows: "A read-only state view for Signal, Decision, Context, Execution, Positions, Review and Knowledge.",
+    shows: "A read-only state view for Signal, Decision, Context, Execution, Positions, Review and Trading Lessons.",
     why: "It makes the beta workflow visible before the supporting workspace panels.",
     interpret: "Read each card as current system readiness and evidence coverage.",
     ignore: "Ignore it as an execution surface; it can focus sections but never submits orders."
@@ -86,7 +86,7 @@ export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
     ignore: "Ignore tiny liquidation prints on illiquid symbols."
   },
   fundingBasis: {
-    title: "Funding/Basis",
+    title: "Funding Rate",
     shows: "Funding rate, annualized pressure and basis context.",
     why: "Extreme funding can make a setup crowded or expensive to hold.",
     interpret: "Treat high absolute funding/basis as a risk modifier.",
@@ -101,14 +101,14 @@ export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
   },
   positionRiskOrchestrator: {
     title: "Position Risk",
-    shows: "Backend position capacity, liquidation stress, safe-to-add state and kill-switch status.",
+    shows: "Backend position capacity, liquidation stress, position-risk state and kill-switch status.",
     why: "It is read-only risk context for the Positions layer.",
     interpret: "Read it as current position capacity and gate context from backend snapshots.",
     ignore: "Ignore it as order authorization; Execution Ticket and backend validation remain final."
   },
   tradingTicket: {
     title: "Execution Ticket",
-    shows: "Order-entry controls, Preflight State, Safe-To-Add State and Execution Readiness.",
+    shows: "Order-entry controls, Safety Check, Position Risk and Ready To Enter status.",
     why: "It is the Execution stage and the only UI surface that sends order intents.",
     interpret: "Review mode, quantity, protective levels and backend validation before submitting.",
     ignore: "Do not submit when confirmations, live gates or preflight checks are not ready."
@@ -122,7 +122,7 @@ export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
   },
   account: {
     title: "Execution",
-    shows: "Execution Ticket, Preflight State, Safe-To-Add State, Execution Readiness and account connectivity status.",
+    shows: "Execution Ticket, Safety Check, Position Risk, Ready To Enter status and account connectivity.",
     why: "Execution is its own workflow stage while account stays limited to connectivity, permissions, balances and status.",
     interpret: "Read the ticket and readiness summary before using account status for connection health.",
     ignore: "Do not treat Account connectivity as order authorization; Execution Ticket and backend validation remain final."
@@ -135,14 +135,14 @@ export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
     ignore: "Ignore signal quality when feed state is degraded."
   },
   decisionStack: {
-    title: "Decision Pipeline",
-    shows: "Attention, flow, risk and execution-readiness states for the selected symbol.",
+    title: "Decision Guide",
+    shows: "Attention, flow, risk and readiness states for the selected symbol.",
     why: "It explains the path from radar to ticket without placing orders.",
     interpret: "PASS means enough context exists, WAIT means incomplete or mixed, BLOCK means a known gate is negative.",
     ignore: "Ignore it as an execution signal; it is an explanation layer only."
   },
   symbolDetailRail: {
-    title: "Why This Matters Now",
+    title: "Why It Matters",
     shows: "Why the selected symbol is in focus, flow confirmation, blockers, execution readiness and recent events.",
     why: "It turns backend fields into a compact human explanation beside the chart.",
     interpret: "GOOD is supportive context, WATCH is mixed or incomplete, BLOCKED is a known blocker, UNKNOWN means data is missing.",
@@ -156,9 +156,9 @@ export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
     ignore: "Ignore it when the component says there is not enough data."
   },
   knowledgeWorkspace: {
-    title: "Knowledge",
+    title: "Trading Lessons",
     shows: "Known links, unknown gaps, chain health, decision coverage, signal linkage, replay coverage, review completeness and playbook readiness.",
-    why: "It makes system memory visible without coaching, recommendations or new calculations.",
+    why: "It makes saved lessons and missing context visible without adding new calculations.",
     interpret: "Read it as what the system knows, what it does not know and how much history can be reconstructed.",
     ignore: "Ignore it for trade timing, order sizing or execution decisions."
   },

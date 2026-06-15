@@ -7,6 +7,13 @@ import type {
   ScreenerRow
 } from "@/lib/types";
 import { formatOpenInterestFreshness, isFreshOpenInterest } from "@/lib/open-interest";
+import {
+  explainDecisionState,
+  explainExecutionBlocker,
+  explainFlowState,
+  explainOpenInterestState,
+  explainRiskState
+} from "@/lib/trading-language";
 import { LearningModeHelp } from "./learning-mode-help";
 import { PanelHeader } from "./ui/panel-header";
 import { StatusBadge } from "./ui/status-badge";
@@ -17,6 +24,7 @@ interface DecisionStep {
   label: string;
   status: DecisionStatus;
   detail: string;
+  meaning: string;
 }
 
 interface DecisionStackProps {
@@ -53,7 +61,7 @@ export function DecisionStack({
   return (
     <div>
       <PanelHeader
-        title="Decision Stack"
+        title="Decision Guide"
         subtitle={selectedSymbol ?? "Select a symbol from Screener or Decision Inbox"}
         moduleId="decisionStack"
       />
@@ -73,6 +81,7 @@ export function DecisionStack({
               <StatusBadge status={step.status}>{step.status}</StatusBadge>
             </div>
             <div className="mt-2 text-xs leading-5 text-slate-400">{step.detail}</div>
+            <div className="mt-1 text-[11px] leading-5 text-slate-500">{step.meaning}</div>
           </div>
         ))}
       </div>
@@ -95,10 +104,30 @@ function buildDecisionSteps({
 }: Omit<DecisionStackProps, "selectedSymbol">): DecisionStep[] {
   if (!row) {
     return [
-      { label: "Attention", status: "WAITING", detail: "waiting for data" },
-      { label: "Flow Confirm", status: "WAITING", detail: "waiting for data" },
-      { label: "Risk Check", status: "WAITING", detail: "waiting for data" },
-      { label: "Execution Ready", status: "WAITING", detail: "waiting for data" }
+      {
+        label: "Attention",
+        status: "WAITING",
+        detail: "waiting for data",
+        meaning: explainDecisionState("WAITING")
+      },
+      {
+        label: "Order Flow Confirm",
+        status: "WAITING",
+        detail: "waiting for data",
+        meaning: explainOpenInterestState({ status: null, hasFlow: false })
+      },
+      {
+        label: "Risk Check",
+        status: "WAITING",
+        detail: "waiting for data",
+        meaning: explainDecisionState("WAITING")
+      },
+      {
+        label: "Ready To Enter",
+        status: "WAITING",
+        detail: "waiting for data",
+        meaning: explainExecutionBlocker({})
+      }
     ];
   }
 
@@ -149,32 +178,54 @@ function buildDecisionSteps({
     {
       label: "Attention",
       status: !hasAttention ? "WAITING" : attentionPass ? "OK" : "CHECK",
-      detail: `score ${row.score.toFixed(1)}, momentum ${row.momentum30sPct.toFixed(2)}%, volume impulse ${row.volumeImpulse.toFixed(2)}`
+      detail: `score ${row.score.toFixed(1)}, momentum ${row.momentum30sPct.toFixed(2)}%, volume impulse ${row.volumeImpulse.toFixed(2)}`,
+      meaning: explainDecisionState(!hasAttention ? "WAITING" : attentionPass ? "OK" : "CHECK")
     },
-    {
-      label: "Flow Confirm",
+      {
+      label: "Order Flow Confirm",
       status: !hasFlow ? "WAITING" : flowPass ? "OK" : "CHECK",
       detail: flow
-        ? `CVD slope ${flow.cvd.slope.toFixed(2)}, ${
+        ? `Order Flow (CVD) slope ${flow.cvd.slope.toFixed(2)}, ${
             isFreshOpenInterest(flow)
-              ? `OI 5m ${flow.openInterest.oiChange5m.toFixed(2)}`
+              ? `Open Interest (OI) 5m ${flow.openInterest.oiChange5m.toFixed(2)}`
               : formatOpenInterestFreshness(flow)
           }, buy ratio ${row.buyRatio60s.toFixed(2)}`
-        : `Using row context: buy ratio ${row.buyRatio60s.toFixed(2)}, liquidations ${row.liquidation5m.toFixed(0)}`
+        : `Using row context: buy ratio ${row.buyRatio60s.toFixed(2)}, liquidations ${row.liquidation5m.toFixed(0)}`,
+      meaning: flow
+        ? `${explainFlowState({
+            slope: flow.cvd.slope,
+            divergence: flow.cvd.divergence
+          })} ${explainOpenInterestState({
+            status: flow.openInterest.status,
+            changePct: flow.openInterest.oiChange5m,
+            ageMs: flow.openInterest.ageMs
+          })}`
+        : explainFlowState({})
     },
-    {
-      label: "Risk Check",
-      status: riskBlocked ? "BLOCKED" : riskWait ? "CHECK" : "OK",
+      {
+        label: "Risk Check",
+        status: riskBlocked ? "BLOCKED" : riskWait ? "CHECK" : "OK",
       detail: capacity
-        ? `${capacity.safeToAdd ? "safe to add" : "not safe to add"}: ${capacity.reason}`
-        : `risk ${row.riskLevel}, spread ${row.spreadBps === null ? "--" : row.spreadBps.toFixed(2)} bps, funding ${(funding?.fundingRate ?? row.fundingRate).toFixed(6)}`
+        ? `${capacity.safeToAdd ? "position risk clear" : "position risk blocked"}: ${capacity.reason}`
+        : `risk ${row.riskLevel}, spread ${row.spreadBps === null ? "--" : row.spreadBps.toFixed(2)} bps, funding ${(funding?.fundingRate ?? row.fundingRate).toFixed(6)}`,
+      meaning: capacity && !capacity.safeToAdd
+        ? explainExecutionBlocker({
+            safeToAddStatus: "BLOCKED",
+            reason: capacity.reason
+          })
+        : explainRiskState(row.riskLevel)
     },
     {
-      label: "Execution Ready",
+      label: "Ready To Enter",
       status: liveBlocked ? "BLOCKED" : liveUnknown ? "WAITING" : "OK",
       detail: liveSafetyState
-        ? `${liveSafetyState.mode}, ready ${liveSafetyState.ready ? "yes" : "no"}, kill switch ${liveSafetyState.killSwitchActive ? "active" : "clear"}`
-        : "waiting for live safety state"
+        ? `${liveSafetyState.mode}, ready ${liveSafetyState.ready ? "yes" : "no"}, kill switch ${liveSafetyState.killSwitchActive ? "safety block active" : "clear"}`
+        : "waiting for live safety state",
+      meaning: liveBlocked
+        ? "Execution is paused by live safety gates."
+        : liveUnknown
+          ? explainDecisionState("WAITING")
+          : explainDecisionState("OK")
     }
   ];
 }

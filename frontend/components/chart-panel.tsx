@@ -4,6 +4,18 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { compactUsd, formatPercent, formatPrice } from "@/lib/format";
 import { isFreshOpenInterest } from "@/lib/open-interest";
+import {
+  explainExecutionBlocker,
+  explainFlowState,
+  explainFundingState,
+  explainOpenInterestState,
+  explainRiskState
+} from "@/lib/trading-language";
+import {
+  getBiasVisual,
+  getDecisionVisual,
+  getDirectionBadgeClass
+} from "@/lib/trading-visuals";
 import type {
   FundingSymbolState,
   LiquidationState,
@@ -581,12 +593,12 @@ export function ChartPanel({
   const safeToAddLabel = positionCapacity
     ? positionCapacity.safeToAdd
       ? "Safe to add"
-      : "Do not add"
+      : "Safety block"
     : row.riskLevel === "CRITICAL"
       ? "Risk block"
       : "No capacity data";
   const riskLabel = positionCapacity
-    ? `${row.riskLevel} / ${positionCapacity.safeToAdd ? "OK" : "BLOCKED"}`
+    ? `${row.riskLevel} / ${positionCapacity.safeToAdd ? "OK" : "SAFETY BLOCK"}`
     : row.riskLevel;
 
   return (
@@ -595,7 +607,7 @@ export function ChartPanel({
         <div>
           <div className="text-2xl font-semibold text-white">{row.symbol}</div>
           <div className="mt-1 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-slate-300">
+            <span className={`rounded-full border px-2.5 py-1 ${getDirectionBadgeClass(row.bias)}`}>
               {row.bias}
             </span>
             <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-slate-300">
@@ -644,7 +656,7 @@ export function ChartPanel({
         </div>
         <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
           {chartMode === "flow"
-            ? "CVD/OI overlay"
+            ? "Order Flow / Open Interest overlay"
             : hasBackendCandles
               ? `backend ${candleSeries?.interval ?? "mini"} candles`
               : "frontend micro-history"}
@@ -900,10 +912,10 @@ export function ChartPanel({
                 />
               ) : null}
               <text x={chartPadding.left + 10} y={chartPadding.top + 20} fill="rgba(56,189,248,0.86)" fontSize="12">
-                CVD
+                Order Flow
               </text>
               <text x={chartPadding.left + 54} y={chartPadding.top + 20} fill="rgba(250,204,21,0.78)" fontSize="12">
-                OI
+                Open Interest
               </text>
             </>
           ) : pricePath ? (
@@ -986,7 +998,7 @@ export function ChartPanel({
                   Vol {compactUsd(hoveredCandle?.volume ?? hoveredPoint.volume)}
                 </text>
                 <text x="12" y="98" fill="rgba(148,163,184,0.9)" fontSize="11">
-                  CVD {hoveredPoint.cvd !== null ? compactUsd(hoveredPoint.cvd) : "--"} / OI {hoveredPoint.oi !== null ? formatMaybeNumber(hoveredPoint.oi, 0) : "--"}
+                  Order Flow (CVD) {hoveredPoint.cvd !== null ? compactUsd(hoveredPoint.cvd) : "--"} / Open Interest (OI) {hoveredPoint.oi !== null ? formatMaybeNumber(hoveredPoint.oi, 0) : "--"}
                 </text>
                 <text x="12" y="118" fill="rgba(250,204,21,0.9)" fontSize="11">
                   click ref / Shift SL / Alt TP
@@ -1069,28 +1081,49 @@ export function ChartPanel({
 
       <div className="mt-3 grid gap-2 xl:grid-cols-[repeat(5,minmax(0,1fr))]">
         <MiniStrip label="Volume impulse" value={formatMaybeNumber(row.volumeImpulse, 2)} tone={stripTone(row.volumeImpulse - 1)} />
-        <MiniStrip label="CVD" value={flow ? compactUsd(flow.cvd.value) : "--"} tone={stripTone(flow?.cvd.slope)} />
         <MiniStrip
-          label="OI"
+          label="Order Flow (CVD)"
+          value={flow ? compactUsd(flow.cvd.value) : "--"}
+          tone={stripTone(flow?.cvd.slope)}
+          detail={explainFlowState({
+            slope: flow?.cvd.slope,
+            divergence: flow?.cvd.divergence
+          })}
+        />
+        <MiniStrip
+          label="Open Interest (OI)"
           value={openInterestStripValue}
           tone={isFreshOpenInterest(flow) ? stripTone(flow?.openInterest.oiChange5m) : stripTone(undefined)}
+          detail={explainOpenInterestState({
+            status: flow?.openInterest.status ?? null,
+            changePct: flow?.openInterest.oiChange5m,
+            ageMs: flow?.openInterest.ageMs,
+            hasFlow: Boolean(flow)
+          })}
         />
         <MiniStrip label="Liquidations" value={liquidations ? compactUsd(liquidations.liquidations5m) : "--"} tone={stripTone(row.liquidation5m)} />
-        <MiniStrip label="Funding" value={funding ? formatMaybePercent(funding.fundingRate * 100, 4) : formatMaybePercent(row.fundingRate * 100, 4)} tone={stripTone(funding?.fundingRate ?? row.fundingRate)} />
+        <MiniStrip
+          label="Funding Rate"
+          value={funding ? formatMaybePercent(funding.fundingRate * 100, 4) : formatMaybePercent(row.fundingRate * 100, 4)}
+          tone={stripTone(funding?.fundingRate ?? row.fundingRate)}
+          detail={explainFundingState({
+            rate: funding?.fundingRate ?? row.fundingRate
+          })}
+        />
       </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         <MiniLine
-          label="CVD micro line"
+          label="Order Flow (CVD) micro line"
           path={cvdPath}
           latest={cvdValues[cvdValues.length - 1] !== undefined ? compactUsd(cvdValues[cvdValues.length - 1]) : "--"}
-          emptyLabel="waiting for CVD history"
+          emptyLabel="waiting for order-flow history"
         />
         <MiniLine
-          label="OI micro line"
+          label="Open Interest (OI) micro line"
           path={oiPath}
           latest={oiValues[oiValues.length - 1] !== undefined ? formatMaybeNumber(oiValues[oiValues.length - 1], 0) : "--"}
-          emptyLabel="waiting for OI history"
+          emptyLabel="waiting for open-interest history"
         />
       </div>
 
@@ -1131,8 +1164,25 @@ function ContextRail({
         <RailMetric label="Momentum" value={momentumLabel} tone={row.momentum2mPct >= 0 ? "positive" : "negative"} />
         <RailMetric label="Volume impulse" value={`${row.volumeImpulse.toFixed(2)}x`} tone={row.volumeImpulse >= 1.5 ? "positive" : "neutral"} />
         <RailMetric label="Spread" value={row.spreadBps !== null ? `${row.spreadBps.toFixed(2)} bps` : "--"} tone={row.spreadBps !== null && row.spreadBps > 20 ? "negative" : "neutral"} />
-        <RailMetric label="Funding" value={fundingLabel} tone={(funding?.fundingRate ?? row.fundingRate) >= 0 ? "positive" : "negative"} />
-        <RailMetric label="Risk / Safe-to-add" value={riskLabel} detail={positionCapacity?.reason ?? safeToAddLabel} tone={positionCapacity?.safeToAdd === false || row.riskLevel === "CRITICAL" ? "negative" : "neutral"} />
+        <RailMetric
+          label="Funding Rate"
+          value={fundingLabel}
+          detail={explainFundingState({ rate: funding?.fundingRate ?? row.fundingRate })}
+          tone={(funding?.fundingRate ?? row.fundingRate) >= 0 ? "positive" : "negative"}
+        />
+        <RailMetric
+          label="Risk / Position Risk"
+          value={riskLabel}
+          detail={
+            positionCapacity?.safeToAdd === false
+              ? `${explainExecutionBlocker({
+                  safeToAddStatus: "BLOCKED",
+                  reason: positionCapacity.reason
+                })} ${positionCapacity.reason ?? ""}`.trim()
+              : `${explainRiskState(row.riskLevel)} ${positionCapacity?.reason ?? safeToAddLabel}`.trim()
+          }
+          tone={positionCapacity?.safeToAdd === false || row.riskLevel === "CRITICAL" ? "negative" : "neutral"}
+        />
       </div>
     </aside>
   );
@@ -1153,7 +1203,7 @@ function ExecutionLegend({ context }: { context: ChartExecutionContext | null | 
         <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Ticket Levels</div>
         {context.ticket ? (
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            <span className={context.ticket.side === "LONG" ? "text-positive" : "text-negative"}>
+            <span className={getBiasVisual(context.ticket.side).textClass}>
               {context.ticket.side}
             </span>
             <span className="text-slate-400">{context.ticket.orderType}</span>
@@ -1177,7 +1227,7 @@ function ExecutionLegend({ context }: { context: ChartExecutionContext | null | 
         <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Active Position</div>
         {context.position ? (
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            <span className={context.position.side === "LONG" ? "text-positive" : "text-negative"}>
+            <span className={getBiasVisual(context.position.side).textClass}>
               {context.position.side}
             </span>
             <span className="text-slate-400">{context.position.source}</span>
@@ -1208,10 +1258,10 @@ function PlanValidationMini({ context }: { context: ChartExecutionContext | null
 
   const sideTone =
     validation.sideConsistency === "OK"
-      ? "text-positive"
+      ? getDecisionVisual("OK").textClass
       : validation.sideConsistency === "CHECK"
-        ? "text-caution"
-        : "text-slate-500";
+        ? getDecisionVisual("WAIT").textClass
+        : getBiasVisual("NEUTRAL").textClass;
   const preflightStatus = preflightBadgeStatus(validation.preflightState);
 
   return (
@@ -1241,23 +1291,20 @@ function PlanValidationMini({ context }: { context: ChartExecutionContext | null
           className={sideTone}
         />
         <ValidationMetric
-          label="Preflight"
+          label="Safety Check"
           value={preflightStatus}
-          className={
-            preflightStatus === "OK"
-              ? "text-positive"
-              : preflightStatus === "BLOCKED"
-                ? "text-negative"
-                : preflightStatus === "CHECK"
-                  ? "text-caution"
-                  : "text-slate-500"
-          }
+          className={getDecisionVisual(preflightStatus).textClass}
         />
       </div>
       <div className="mt-2 text-xs leading-5 text-slate-400">
         {validation.sideConflicts.length > 0
           ? validation.sideConflicts.join(" ")
           : validation.preflightMessage}
+      </div>
+      <div className="mt-1 text-[11px] leading-5 text-slate-500">
+        {explainExecutionBlocker({
+          preflightState: validation.preflightState
+        })}
       </div>
     </div>
   );
@@ -1325,11 +1372,22 @@ function PanelShell({ subtitle, children, learningMode }: { subtitle: string; ch
   );
 }
 
-function MiniStrip({ label, value, tone }: { label: string; value: string; tone: string }) {
+function MiniStrip({
+  label,
+  value,
+  tone,
+  detail
+}: {
+  label: string;
+  value: string;
+  tone: string;
+  detail?: string;
+}) {
   return (
     <div className="rounded-lg border border-white/10 bg-black/20 p-3">
       <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
       <div className="mt-2 text-sm font-semibold text-slate-100">{value}</div>
+      {detail ? <div className="mt-1 text-[11px] leading-5 text-slate-500">{detail}</div> : null}
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/5">
         <div className={`h-full w-2/3 rounded-full ${tone}`} />
       </div>

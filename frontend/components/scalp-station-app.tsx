@@ -111,6 +111,22 @@ import {
   signalSoundPresets
 } from "@/lib/signal-sounds";
 import {
+  getBiasVisual,
+  getDecisionVisual,
+  getDirectionBadgeClass,
+  getFreshnessVisual,
+  getRiskVisual
+} from "@/lib/trading-visuals";
+import {
+  explainDecisionState,
+  explainExecutionBlocker,
+  explainFlowState,
+  explainFundingState,
+  explainFreshnessState,
+  explainOpenInterestState,
+  explainRiskState
+} from "@/lib/trading-language";
+import {
   buildCabinetQrPayload,
   createCabinetProfile,
   createGuestSession,
@@ -255,18 +271,12 @@ const riskLevelClasses = (
     | "safe"
     | null
     | undefined
-): string => {
-  if (level === "CRITICAL" || level === "critical") {
-    return "border-negative/35 bg-negative/12 text-negative";
-  }
-  if (level === "HIGH" || level === "warning") {
-    return "border-caution/35 bg-caution/12 text-caution";
-  }
-  if (level === "MEDIUM") {
-    return "border-accent/35 bg-accent/12 text-accent";
-  }
-  return "border-positive/30 bg-positive/10 text-positive";
-};
+): string =>
+  level === "critical"
+    ? getRiskVisual("CRITICAL").badgeClass
+    : level === "warning"
+      ? getRiskVisual("MEDIUM").badgeClass
+      : getRiskVisual(level).badgeClass;
 
 const alertSeverityClasses = (
   severity: "info" | "high" | "critical" | null | undefined
@@ -280,15 +290,8 @@ const alertSeverityClasses = (
   return "border-white/10 bg-white/5 text-slate-300";
 };
 
-const flowBiasClasses = (bias: "LONG" | "SHORT" | "NEUTRAL" | null | undefined): string => {
-  if (bias === "LONG") {
-    return "text-positive";
-  }
-  if (bias === "SHORT") {
-    return "text-negative";
-  }
-  return "text-slate-300";
-};
+const flowBiasClasses = (bias: "LONG" | "SHORT" | "NEUTRAL" | null | undefined): string =>
+  getBiasVisual(bias).textClass;
 
 const marketFlowDivergenceClasses = (
   divergence: "bullish" | "bearish" | "none" | null | undefined
@@ -315,15 +318,8 @@ const liquidationHeatClasses = (heat: LiquidationHeat | null | undefined): strin
   return "border-white/10 bg-white/5 text-slate-300";
 };
 
-const regimeBiasClasses = (bias: "LONG" | "SHORT" | "NEUTRAL" | null | undefined): string => {
-  if (bias === "LONG") {
-    return "border-positive/35 bg-positive/10 text-positive";
-  }
-  if (bias === "SHORT") {
-    return "border-negative/35 bg-negative/10 text-negative";
-  }
-  return "border-white/10 bg-white/5 text-slate-300";
-};
+const regimeBiasClasses = (bias: "LONG" | "SHORT" | "NEUTRAL" | null | undefined): string =>
+  getBiasVisual(bias).badgeClass;
 
 const executionTierClasses = (tier: "A_TIER" | "B_TIER" | "IGNORE" | null | undefined): string => {
   if (tier === "A_TIER") {
@@ -395,62 +391,31 @@ const tradePermissionClasses = (
 
 const positionRiskStressClasses = (
   level: "LOW" | "MEDIUM" | "HIGH" | "EXTREME" | null | undefined
-): string => {
-  if (level === "LOW") {
-    return "border-positive/35 bg-positive/10 text-positive";
-  }
-
-  if (level === "MEDIUM") {
-    return "border-accent/35 bg-accent/12 text-accent";
-  }
-
-  if (level === "HIGH") {
-    return "border-caution/35 bg-caution/12 text-caution";
-  }
-
-  return "border-negative/35 bg-negative/12 text-negative";
-};
+): string =>
+  level === "MEDIUM"
+    ? getRiskVisual("MEDIUM").badgeClass
+    : level === "LOW"
+      ? getRiskVisual("LOW").badgeClass
+      : getRiskVisual("HIGH").badgeClass;
 
 const positionRiskKillSwitchClasses = (
   state: "NORMAL" | "CAUTION" | "STOP_ADDING" | "REDUCE_RISK" | "EMERGENCY" | null | undefined
-): string => {
-  if (state === "NORMAL") {
-    return "border-positive/35 bg-positive/10 text-positive";
-  }
-
-  if (state === "CAUTION") {
-    return "border-accent/35 bg-accent/12 text-accent";
-  }
-
-  if (state === "STOP_ADDING" || state === "REDUCE_RISK") {
-    return "border-caution/35 bg-caution/12 text-caution";
-  }
-
-  return "border-negative/35 bg-negative/12 text-negative";
-};
+): string =>
+  state === "NORMAL"
+    ? getDecisionVisual("OK").badgeClass
+    : state === "CAUTION"
+      ? getDecisionVisual("WAIT").badgeClass
+      : getDecisionVisual("BLOCKED").badgeClass;
 
 const positionRiskSafeClasses = (value: boolean | null | undefined): string =>
   value === true
-    ? "border-positive/35 bg-positive/10 text-positive"
+    ? getDecisionVisual("OK").badgeClass
     : value === false
-      ? "border-negative/35 bg-negative/12 text-negative"
-      : "border-white/10 bg-white/5 text-slate-300";
+      ? getDecisionVisual("BLOCKED").badgeClass
+      : getBiasVisual("NEUTRAL").badgeClass;
 
-const opportunityVerdictClasses = (value: string | null | undefined): string => {
-  if (value === "TRADE") {
-    return "border-positive/35 bg-positive/10 text-positive";
-  }
-
-  if (value === "WAIT") {
-    return "border-caution/35 bg-caution/12 text-caution";
-  }
-
-  if (value === "DO_NOT_TRADE") {
-    return "border-negative/35 bg-negative/12 text-negative";
-  }
-
-  return "border-white/10 bg-white/5 text-slate-400";
-};
+const opportunityVerdictClasses = (value: string | null | undefined): string =>
+  getDecisionVisual(value).badgeClass;
 
 const setupTypeClasses = (value: string | null | undefined): string =>
   !value || value === "UNKNOWN"
@@ -501,44 +466,29 @@ const overrideModeClasses = (
   return "border-white/10 bg-white/5 text-slate-300";
 };
 
-const doNotTradeClasses = (value: string | null | undefined): string => {
-  if (value === "ALLOW" || value === "OK") {
-    return "border-positive/30 bg-positive/10 text-positive";
-  }
-
-  if (value === "REDUCE_SIZE" || value === "CAUTION") {
-    return "border-yellow-400/30 bg-yellow-400/10 text-yellow-200";
-  }
-
-  if (value === "WAIT") {
-    return "border-accent/30 bg-accent/10 text-accent";
-  }
-
-  if (value === "BLOCK" || value === "BLOCKED" || value === "EMERGENCY") {
-    return "border-negative/30 bg-negative/10 text-negative";
-  }
-
-  return "border-white/10 bg-white/5 text-slate-300";
-};
+const doNotTradeClasses = (value: string | null | undefined): string =>
+  value === "REDUCE_SIZE"
+    ? getDecisionVisual("WAIT").badgeClass
+    : getDecisionVisual(value).badgeClass;
 
 const safeToAddStatusClasses = (value: string | null | undefined): string => {
   if (value === "ALLOW") {
-    return "border-positive/30 bg-positive/10 text-positive";
+    return getDecisionVisual("OK").badgeClass;
   }
 
   if (value === "WAIT") {
-    return "border-caution/35 bg-caution/10 text-caution";
+    return getDecisionVisual("WAIT").badgeClass;
   }
 
   if (value === "STALE") {
-    return "border-caution/40 bg-caution/12 text-caution";
+    return getFreshnessVisual("STALE").badgeClass;
   }
 
   if (value === "BLOCK") {
-    return "border-negative/35 bg-negative/10 text-negative";
+    return getDecisionVisual("BLOCKED").badgeClass;
   }
 
-  return "border-white/10 bg-white/5 text-slate-300";
+  return getBiasVisual("NEUTRAL").badgeClass;
 };
 
 const safeToAddReasonClasses = (severity: string | null | undefined): string => {
@@ -1053,14 +1003,14 @@ const decisionInboxCardClasses = (item: DecisionInboxItem): string => {
 
 const decisionActionClasses = (decision: TradeDecisionAction): string => {
   if (decision === "ENTER") {
-    return "border-positive/35 bg-positive/10 text-positive hover:border-positive/60 hover:text-white";
+    return `${getDecisionVisual("ENTER").badgeClass} hover:border-positive/60 hover:text-white`;
   }
 
   if (decision === "WAIT") {
-    return "border-caution/35 bg-caution/10 text-caution hover:border-caution/60 hover:text-white";
+    return `${getDecisionVisual("WAIT").badgeClass} hover:border-caution/60 hover:text-white`;
   }
 
-  return "border-white/10 bg-white/5 text-slate-300 hover:border-slate-300/50 hover:text-white";
+  return `${getBiasVisual("NEUTRAL").badgeClass} hover:border-slate-300/50 hover:text-white`;
 };
 
 const bindOrderConfirmationToDecisionContext = (
@@ -1095,17 +1045,8 @@ const continuityStateClasses = (
 
 const forecastBiasClasses = (
   bias: "LONG_BIASED" | "SHORT_BIASED" | "NEUTRAL" | null | undefined
-): string => {
-  if (bias === "LONG_BIASED") {
-    return "border-positive/35 bg-positive/10 text-positive";
-  }
-
-  if (bias === "SHORT_BIASED") {
-    return "border-negative/35 bg-negative/12 text-negative";
-  }
-
-  return "border-white/10 bg-white/5 text-slate-300";
-};
+): string =>
+  getBiasVisual(bias).badgeClass;
 
 const stabilityHorizonClasses = (
   bucket: "LOW" | "MODERATE" | "STABLE" | null | undefined
@@ -1298,18 +1239,18 @@ const uniqueStrings = (items: Array<string | null | undefined>): string[] => {
 
 const cockpitStatusClasses = (status: CockpitStatus): string => {
   if (status === "OK") {
-    return "border-positive/35 bg-positive/10 text-positive";
+    return getDecisionVisual("OK").badgeClass;
   }
 
   if (status === "BLOCKED") {
-    return "border-negative/35 bg-negative/10 text-negative";
+    return getDecisionVisual("BLOCKED").badgeClass;
   }
 
   if (status === "CHECK") {
-    return "border-caution/35 bg-caution/10 text-caution";
+    return getDecisionVisual("WAIT").badgeClass;
   }
 
-  return "border-white/10 bg-white/5 text-slate-400";
+  return getBiasVisual("NEUTRAL").badgeClass;
 };
 
 const normalizeSafeToCockpitStatus = (status: string | null | undefined): CockpitStatus => {
@@ -1376,10 +1317,10 @@ const orderHistorySideLabel = (side: "BUY" | "SELL" | null | undefined): string 
 
 const orderHistorySideClasses = (side: "BUY" | "SELL" | null | undefined): string =>
   side === "BUY"
-    ? "text-positive"
+    ? getBiasVisual("LONG").textClass
     : side === "SELL"
-      ? "text-negative"
-      : "text-slate-400";
+      ? getBiasVisual("SHORT").textClass
+      : getBiasVisual("NEUTRAL").textClass;
 
 const formatOrderHistoryQuantity = (value: number | null | undefined): string =>
   typeof value === "number"
@@ -1505,6 +1446,109 @@ const formatNullableUsd = (value: number | null): string =>
 
 const formatNullablePercent = (value: number | null): string =>
   value === null ? "n/a" : formatPercent(value, 1);
+
+const clampMetric = (value: number, min: number, max: number): number =>
+  Math.min(Math.max(value, min), max);
+
+const traderOpportunityVerdictClasses = (verdict: OpportunityVerdict): string =>
+  verdict === "WATCH" ? getDecisionVisual("WAIT").badgeClass : getDecisionVisual(verdict).badgeClass;
+
+const opportunityDirectionClasses = (direction: "LONG" | "SHORT" | "WAIT"): string =>
+  getDirectionBadgeClass(direction);
+
+const opportunityFundingLabel = (row: ScreenerRow, funding: FundingSymbolState | null): string => {
+  const rate = funding?.fundingRate ?? row.fundingRate;
+
+  if (Math.abs(rate) < 0.00015) {
+    return "Neutral";
+  }
+
+  return rate > 0 ? "Longs paying" : "Shorts paying";
+};
+
+const opportunityOpenInterestLabel = (flow: MarketFlowState | null): string => {
+  if (!flow) {
+    return "Waiting";
+  }
+
+  if (!isFreshOpenInterest(flow)) {
+    return formatOpenInterestFreshness(flow);
+  }
+
+  if (flow.openInterest.oiChange5m >= 0.15) {
+    return "Rising";
+  }
+
+  if (flow.openInterest.oiChange5m <= -0.15) {
+    return "Falling";
+  }
+
+  return "Flat";
+};
+
+const opportunityFlowLabel = (row: ScreenerRow, flow: MarketFlowState | null): string => {
+  const liquidationLabel =
+    row.liquidationBias === "SHORTS_HIT"
+      ? "short squeeze"
+      : row.liquidationBias === "LONGS_HIT"
+        ? "long washout"
+        : "balanced";
+
+  if (!flow) {
+    return liquidationLabel;
+  }
+
+  if (flow.cvd.slope > 0.01) {
+    return flow.cvd.divergence === "bullish" ? "Buyer pressure (CVD)" : "Buyer flow";
+  }
+
+  if (flow.cvd.slope < -0.01) {
+    return flow.cvd.divergence === "bearish" ? "Seller pressure (CVD)" : "Seller flow";
+  }
+
+  return liquidationLabel;
+};
+
+const buildTraderOpportunityThesis = (input: TraderOpportunityRow): string => {
+  const { row, flow, liquidations, direction, conviction, fundingLabel, openInterestLabel, flowLabel } =
+    input;
+  const headline =
+    direction === "WAIT"
+      ? `WAIT relative score ${row.score.toFixed(1)}.`
+      : `${direction} conviction ${conviction}/100.`;
+  const oiSentence =
+    !flow || !isFreshOpenInterest(flow)
+      ? `${openInterestLabel}.`
+      : flow.openInterest.oiChange5m >= 0.15
+        ? "Open Interest rising."
+        : flow.openInterest.oiChange5m <= -0.15
+          ? "Open Interest fading."
+          : "Open Interest flat.";
+  const cvdSentence =
+    !flow
+      ? "Flow context still building."
+      : flow.cvd.slope > 0.01
+        ? "Order Flow (CVD) is positive."
+        : flow.cvd.slope < -0.01
+          ? "Order Flow (CVD) is negative."
+          : `${flowLabel}.`;
+  const fundingSentence =
+    fundingLabel === "Neutral"
+      ? "Funding neutral."
+      : fundingLabel === "Longs paying"
+        ? "Funding favors shorts."
+        : "Funding favors longs.";
+  const liquidationSentence =
+    (liquidations?.liquidations5m ?? row.liquidation5m) > 0
+      ? row.liquidationBias === "SHORTS_HIT"
+        ? "Short liquidations increasing."
+        : row.liquidationBias === "LONGS_HIT"
+          ? "Long liquidations increasing."
+          : "Liquidations are balanced."
+      : "Liquidation pressure is quiet.";
+
+  return [headline, oiSentence, cvdSentence, fundingSentence, liquidationSentence].join(" ");
+};
 
 const formatTelemetryKb = (value: number | null | undefined): string =>
   typeof value === "number" ? `${value.toFixed(2)} KB` : "--";
@@ -1691,6 +1735,30 @@ interface WhyThisMattersSummary {
   whyNot: string[];
 }
 
+type OpportunityVerdict = "TRADE" | "WATCH" | "WAIT";
+
+interface TraderOpportunityRow {
+  row: ScreenerRow;
+  flow: MarketFlowState | null;
+  funding: FundingSymbolState | null;
+  liquidations: LiquidationState | null;
+  direction: "LONG" | "SHORT" | "WAIT";
+  score: number;
+  conviction: number;
+  risk: number;
+  verdict: OpportunityVerdict;
+  fundingLabel: string;
+  fundingExplanation: string;
+  openInterestLabel: string;
+  openInterestExplanation: string;
+  flowLabel: string;
+  flowExplanation: string;
+  riskExplanation: string;
+  decisionExplanation: string;
+  blockers: string[];
+  thesis: string;
+}
+
 
 
 const pulseSpeechLabel = (
@@ -1802,23 +1870,23 @@ const sectionLabels: Array<{ id: CollapsibleSectionId; label: string }> = [
   { id: "riskCenter", label: "Risk Center" },
   { id: "correlationHeatmap", label: "Correlation Heatmap" },
   { id: "varPanel", label: "VaR" },
-  { id: "fundingBasis", label: "Funding" },
+  { id: "fundingBasis", label: "Funding Rate" },
   { id: "marketFlow", label: "Market Flow" },
   { id: "chartPanel", label: "Context" },
-  { id: "decisionStack", label: "Decision Pipeline" },
-  { id: "symbolDetailRail", label: "Why This Matters Now" },
+  { id: "decisionStack", label: "Decision Guide" },
+  { id: "symbolDetailRail", label: "Why It Matters" },
   { id: "marketStory", label: "Signal Story" },
   { id: "signalIntelligence", label: "Advanced Signal Intelligence" },
   { id: "metaRegimeGovernor", label: "Advanced Meta Regime Governor" },
-  { id: "positionRiskOrchestrator", label: "Position Risk Orchestrator" },
+  { id: "positionRiskOrchestrator", label: "Advanced Position Risk" },
   { id: "regimeMemory", label: "Advanced Regime Memory" },
   { id: "regimePrediction", label: "Advanced Regime Prediction" },
   { id: "regimeFeedbackCalibration", label: "Advanced Regime Feedback Calibration" },
   { id: "pnlAttribution", label: "PnL Attribution" },
-  { id: "signalStatistics", label: "Review Statistics" },
+  { id: "signalStatistics", label: "Advanced Review Statistics" },
   { id: "learningCenter", label: "Experimental Research" },
   { id: "tradeJournal", label: "Review" },
-  { id: "knowledgeWorkspace", label: "Knowledge" },
+  { id: "knowledgeWorkspace", label: "Trading Lessons" },
   { id: "watchlist", label: "Watchlist" },
   { id: "volumeMilestones", label: "100M Volume" },
   { id: "volumeThresholdMilestones", label: "1-100M Volume" },
@@ -1829,7 +1897,7 @@ const sectionLabels: Array<{ id: CollapsibleSectionId; label: string }> = [
 ];
 
 const frameSectionsByPanel: Record<CollapsibleSectionId, string[]> = {
-  overview: ["overview"],
+  overview: ["overview", "rows", "marketFlow", "funding", "liquidations"],
   filters: ["settings", "status"],
   screener: ["rows"],
   account: ["risk", "portfolioAnalytics"],
@@ -3073,7 +3141,7 @@ export function ScalpStationApp({
     if (guardMatches) {
       setTicketDecisionContextGuard(null);
     }
-    setOrderEntryError("Preflight expired. Request a new confirmation before submitting.");
+    setOrderEntryError("Safety Check expired. Request a new confirmation before submitting.");
   }, [
     currentOrderEntryPreflight?.response?.preflightId,
     freshOrderEntryPreflight,
@@ -3090,19 +3158,19 @@ export function ScalpStationApp({
     : orderEntrySafeToAdd?.status ?? "WAIT";
   const orderEntrySafeToAddDetail = staleOrderEntryPreflight && orderEntrySafeToAdd
     ? currentOrderEntryPreflight?.loading
-      ? "Safe-To-Add preflight stale; refreshing."
-      : "Safe-To-Add preflight stale for edited ticket."
+      ? "Position Risk Safety Check is stale; refreshing."
+      : "Position Risk Safety Check is stale for the edited ticket."
     : currentOrderEntryPreflight?.loading
-      ? "Safe-To-Add preflight refreshing."
+      ? "Position Risk Safety Check is refreshing."
     : currentOrderEntryPreflight?.unavailableReason
       ? currentOrderEntryPreflight.unavailableReason
-      : positionSizingLoading
-        ? "Safe-To-Add refreshing."
+    : positionSizingLoading
+        ? "Position Risk is refreshing."
         : orderEntrySafeToAdd?.blockers[0] ??
           orderEntrySafeToAdd?.warnings[0] ??
           (orderEntrySafeToAdd
-            ? "No blocking Safe-To-Add message."
-            : "Safe-To-Add stale or unavailable.");
+            ? "No blocking Position Risk message."
+            : "Position Risk is stale or unavailable.");
   const orderEntrySafeToAddAccountBlockers = useMemo(
     () =>
       [...(orderEntrySafeToAdd?.accountBlockers ?? [])]
@@ -3165,18 +3233,18 @@ export function ScalpStationApp({
         ? "Confirm is disabled because the backend WebSocket is not open."
         : orderEntryValidation.errors[0] ??
           (!freshOrderEntryPreflight
-            ? "Confirm is disabled because a fresh backend preflight is required."
+            ? "Confirm is disabled because a fresh Safety Check is required."
             : currentOrderEntryPreflight?.ticketKey !== orderEntryPreflightTicketKey
-              ? "Confirm is disabled because the backend preflight does not match the current ticket."
+              ? "Confirm is disabled because the backend Safety Check does not match the current ticket."
               : orderEntryPreflightSafeToAdd?.status !== "ALLOW"
-                ? `Confirm is disabled because preflight Safe-To-Add is ${orderEntryPreflightSafeToAdd?.status ?? "WAIT"}: ${orderEntrySafeToAddDetail}`
+                ? `Confirm is disabled because Position Risk is ${orderEntryPreflightSafeToAdd?.status ?? "WAIT"}: ${orderEntrySafeToAddDetail}`
                 : !orderEntryPreflightId || !orderEntryPreflightNonce
-                  ? "Confirm is disabled because backend preflight binding is missing."
+                  ? "Confirm is disabled because backend Safety Check binding is missing."
                   : null);
     const enabledWarning =
       disabledReason === null &&
       (warnings.length > 0 || accountBlockers.length > 0)
-        ? "Submit is enabled only because preflight is fresh and ALLOW; review warnings before sending."
+        ? "Submit is enabled because the Safety Check is fresh and Position Risk is clear; review warnings before sending."
         : null;
 
     return {
@@ -3414,12 +3482,12 @@ export function ScalpStationApp({
       preflightState,
       preflightMessage:
         preflightState === "blocked"
-          ? `Blocked by preflight: ${orderEntrySafeToAddDetail}`
-          : preflightState === "clear"
-            ? "Preflight clear. Confirm still belongs to the Execution Ticket."
+          ? `Blocked by Safety Check: ${orderEntrySafeToAddDetail}`
+        : preflightState === "clear"
+            ? "Safety Check clear. Confirm still belongs to the Execution Ticket."
             : preflightState === "stale"
-              ? "Preflight is stale after ticket edits; waiting for refresh."
-              : "Waiting for preflight. Confirm remains controlled by the Execution Ticket."
+              ? "Safety Check is stale after ticket edits; waiting for refresh."
+              : "Waiting for Safety Check. Confirm remains controlled by the Execution Ticket."
     };
   }, [
     effectiveOrderEntryStopLossPrice,
@@ -4252,7 +4320,7 @@ export function ScalpStationApp({
         response: previous?.response ?? null,
         loading: false,
         stale: previous?.response ? true : false,
-        unavailableReason: "Safe-To-Add preflight unavailable.",
+        unavailableReason: "Position Risk Safety Check unavailable.",
         requestedAt: null,
         receivedAt: previous?.receivedAt ?? null
       }));
@@ -4275,7 +4343,7 @@ export function ScalpStationApp({
             : previous?.response
               ? true
               : false,
-        unavailableReason: "Safe-To-Add preflight waiting for connection.",
+        unavailableReason: "Position Risk Safety Check waiting for connection.",
         requestedAt: null,
         receivedAt:
           previous?.ticketKey === orderEntryPreflightTicketKey
@@ -4326,7 +4394,7 @@ export function ScalpStationApp({
               : previous?.response
                 ? true
                 : false,
-          unavailableReason: "Safe-To-Add preflight waiting for connection.",
+          unavailableReason: "Position Risk Safety Check waiting for connection.",
           requestedAt: null,
           receivedAt:
             previous?.ticketKey === orderEntryPreflightTicketKey
@@ -4623,7 +4691,7 @@ export function ScalpStationApp({
 
       if (!preflightStillFresh) {
         setPendingOrderConfirmation(null);
-        setOrderEntryError("Preflight is stale. Request a new confirmation before submitting.");
+        setOrderEntryError("Safety Check is stale. Request a new confirmation before submitting.");
         return;
       }
     }
@@ -6759,6 +6827,7 @@ export function ScalpStationApp({
   };
 
   const shouldBuildFilteredRows =
+    isPanelDataActive("overview") ||
     isPanelDataActive("screener") ||
     isPanelDataActive("activeTrades") ||
     isPanelDataActive("watchlist") ||
@@ -7311,6 +7380,199 @@ export function ScalpStationApp({
           ),
     [liquidationHeatRanking, shouldBuildMarketFlowDerivatives]
   );
+  const shouldBuildOpportunityRows = isPanelDataActive("overview");
+  const fundingBySymbol = useMemo(
+    () => new Map<string, FundingSymbolState>(fundingRows.map((item) => [item.symbol, item])),
+    [fundingRows]
+  );
+  const marketFlowBySymbol = useMemo(
+    () => new Map<string, MarketFlowState>(marketFlowRows.map((item) => [item.symbol, item])),
+    [marketFlowRows]
+  );
+  const opportunityRows = useMemo<TraderOpportunityRow[]>(
+    () =>
+      !shouldBuildOpportunityRows
+        ? []
+        : [...filteredRows]
+            .map((row) => {
+              const flow = marketFlowBySymbol.get(row.symbol) ?? null;
+              const funding = fundingBySymbol.get(row.symbol) ?? null;
+              const liquidations = liquidationBySymbol[row.symbol] ?? null;
+              const criticalWhyNot = (row.whyNotTrade ?? []).some(
+                (item) => item.severity === "critical"
+              );
+              const warningWhyNot = (row.whyNotTrade ?? []).some(
+                (item) => item.severity === "warning"
+              );
+              const direction = row.bias === "LONG" || row.bias === "SHORT" ? row.bias : "WAIT";
+              const risk = clampMetric(Math.round(row.riskScore), 0, 100);
+              const flowConfirmations =
+                (flow && Math.abs(flow.cvd.slope) > 0.01 ? 1 : 0) +
+                (flow && isFreshOpenInterest(flow) && Math.abs(flow.openInterest.oiChange5m) > 0.15
+                  ? 1
+                  : 0) +
+                (row.volumeImpulse >= 1.5 ? 1 : 0) +
+                (((row.liquidationBias === "SHORTS_HIT" && row.bias === "LONG") ||
+                  (row.liquidationBias === "LONGS_HIT" && row.bias === "SHORT")) &&
+                (liquidations?.liquidations5m ?? row.liquidation5m) > 0
+                  ? 1
+                  : 0);
+              const riskPenalty =
+                (row.riskLevel === "CRITICAL"
+                  ? 26
+                  : row.riskLevel === "HIGH"
+                    ? 14
+                    : row.riskLevel === "MEDIUM"
+                      ? 6
+                      : 0) +
+                (criticalWhyNot ? 12 : warningWhyNot ? 6 : 0) +
+                ((row.spreadBps ?? 0) > 18 ? 6 : 0) +
+                (direction === "WAIT" ? 18 : 0);
+              const conviction = clampMetric(
+                Math.round(
+                  (row.decisionQualityScore ?? row.confidenceScore ?? row.score) * 0.84 +
+                    Math.max(0, row.volumeImpulse - 1) * 12 +
+                    flowConfirmations * 5 -
+                    riskPenalty
+                ),
+                0,
+                100
+              );
+              const fundingLabel = opportunityFundingLabel(row, funding);
+              const fundingExplanation = explainFundingState({
+                rate: funding?.fundingRate ?? row.fundingRate,
+                label: fundingLabel
+              });
+              const openInterestLabel = opportunityOpenInterestLabel(flow);
+              const openInterestExplanation = explainOpenInterestState({
+                status: flow?.openInterest.status ?? null,
+                changePct: flow?.openInterest.oiChange5m,
+                ageMs: flow?.openInterest.ageMs,
+                hasFlow: Boolean(flow)
+              });
+              const flowLabel = opportunityFlowLabel(row, flow);
+              const flowExplanation = explainFlowState({
+                slope: flow?.cvd.slope,
+                divergence: flow?.cvd.divergence,
+                label: flowLabel
+              });
+              const blockers = [
+                direction === "WAIT" ? "neutral direction" : null,
+                row.score < 60 ? "score below trigger" : null,
+                row.riskLevel === "CRITICAL"
+                  ? "critical risk"
+                  : row.riskLevel === "HIGH"
+                    ? "high risk"
+                    : null,
+                criticalWhyNot ? "hard blocker" : warningWhyNot ? "warning blocker" : null,
+                !flow ? "flow waiting" : null,
+                flow && !isFreshOpenInterest(flow) ? "stale open interest" : null,
+                flow && Math.abs(flow.cvd.slope) <= 0.01 ? "flat order flow" : null
+              ].filter((value): value is string => Boolean(value));
+              const verdict: OpportunityVerdict =
+                direction === "WAIT" || criticalWhyNot || row.riskLevel === "CRITICAL" || row.score < 55
+                  ? "WAIT"
+                  : conviction >= 72 &&
+                      row.score >= 70 &&
+                      row.riskLevel !== "HIGH" &&
+                      flowConfirmations >= 2
+                    ? "TRADE"
+                    : "WATCH";
+              const riskExplanation = explainRiskState(row.riskLevel);
+              const decisionExplanation = explainDecisionState(verdict);
+              const snapshot: TraderOpportunityRow = {
+                row,
+                flow,
+                funding,
+                liquidations,
+                direction,
+                score: row.score,
+                conviction,
+                risk,
+                verdict,
+                fundingLabel,
+                fundingExplanation,
+                openInterestLabel,
+                openInterestExplanation,
+                flowLabel,
+                flowExplanation,
+                riskExplanation,
+                decisionExplanation,
+                blockers,
+                thesis: ""
+              };
+
+              return {
+                ...snapshot,
+                thesis: buildTraderOpportunityThesis(snapshot)
+              };
+            })
+            .sort(
+              (left, right) =>
+                right.score - left.score ||
+                right.conviction - left.conviction ||
+                left.risk - right.risk
+            ),
+    [
+      filteredRows,
+      fundingBySymbol,
+      liquidationBySymbol,
+      marketFlowBySymbol,
+      shouldBuildOpportunityRows
+    ]
+  );
+  const topOpportunityRows = useMemo(
+    () => opportunityRows.slice(0, 8),
+    [opportunityRows]
+  );
+  const bestLongOpportunity = useMemo(
+    () => opportunityRows.find((item) => item.direction === "LONG") ?? null,
+    [opportunityRows]
+  );
+  const bestShortOpportunity = useMemo(
+    () => opportunityRows.find((item) => item.direction === "SHORT") ?? null,
+    [opportunityRows]
+  );
+  const highestConvictionOpportunity = useMemo(
+    () =>
+      opportunityRows.reduce<TraderOpportunityRow | null>(
+        (best, item) => (!best || item.conviction > best.conviction ? item : best),
+        null
+      ),
+    [opportunityRows]
+  );
+  const highestRiskOpportunity = useMemo(
+    () =>
+      opportunityRows.reduce<TraderOpportunityRow | null>(
+        (best, item) => (!best || item.risk > best.risk ? item : best),
+        null
+      ),
+    [opportunityRows]
+  );
+  const topOpportunityTheses = useMemo(
+    () => opportunityRows.slice(0, 3),
+    [opportunityRows]
+  );
+  const allTopOpportunitiesWaiting = useMemo(
+    () =>
+      topOpportunityRows.length > 0 &&
+      topOpportunityRows.every((item) => item.verdict === "WAIT"),
+    [topOpportunityRows]
+  );
+  const allTopOpportunityReasons = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const item of topOpportunityRows) {
+      for (const blocker of item.blockers) {
+        counts.set(blocker, (counts.get(blocker) ?? 0) + 1);
+      }
+    }
+
+    return [...counts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 3)
+      .map(([reason]) => reason);
+  }, [topOpportunityRows]);
   const shouldBuildPortfolioPnlData = isPanelDataActive("pnlAttribution");
   const portfolioSymbolAnalytics = useMemo(
     () =>
@@ -7628,8 +7890,8 @@ export function ScalpStationApp({
         detail: executionWorkspaceState.topBlockerDetail,
         facts: [
           { label: "Ticket Ready", value: executionWorkspaceState.ticketStatus },
-          { label: "Preflight Status", value: executionWorkspaceState.preflightStatus },
-          { label: "Safe-To-Add Status", value: executionWorkspaceState.safeToAddStatus },
+          { label: "Safety Check", value: executionWorkspaceState.preflightStatus },
+          { label: "Position Risk", value: executionWorkspaceState.safeToAddStatus },
           { label: "Top Blocker", value: executionWorkspaceState.topBlocker }
         ],
         targetLabel: "Focus Execution Ticket",
@@ -7676,7 +7938,7 @@ export function ScalpStationApp({
       },
       {
         id: "knowledge",
-        title: "Knowledge",
+        title: "Trading Lessons",
         status: knowledgeStatus,
         tone: knowledgeTone,
         headline: knowledgeLayer
@@ -7684,7 +7946,7 @@ export function ScalpStationApp({
           : knowledgeLayerError
             ? "Snapshot error"
             : "No snapshot loaded",
-        detail: knowledgeLayerError ?? "System memory from the existing knowledge snapshot.",
+        detail: knowledgeLayerError ?? "Saved lessons from the existing trading snapshot.",
         facts: [
           {
             label: "Known",
@@ -7699,7 +7961,7 @@ export function ScalpStationApp({
             value: formatReviewCompleteness(knowledgeLayer?.chainHealth.completenessPct)
           }
         ],
-        targetLabel: "Focus Knowledge",
+        targetLabel: "Focus Trading Lessons",
         targetSection: "knowledgeWorkspace"
       }
     ];
@@ -7764,13 +8026,13 @@ export function ScalpStationApp({
           {
             label: "Flow",
             value: "Mixed",
-            detail: "Waiting for CVD, OI and buy-ratio context.",
+            detail: "Waiting for order flow, open interest and buy-ratio context.",
             tone: "caution"
           },
           {
             label: "Confirmation",
             value: "None",
-            detail: "No OI, CVD or liquidation confirmation yet.",
+            detail: "No open-interest, order-flow or liquidation confirmation yet.",
             tone: "neutral"
           },
           {
@@ -7811,9 +8073,9 @@ export function ScalpStationApp({
       selectedSymbolFlow &&
       isFreshOpenInterest(selectedSymbolFlow) &&
       Math.abs(selectedSymbolFlow.openInterest.oiChange5m) > 0.05
-        ? "OI"
+        ? "Open Interest"
         : null,
-      selectedSymbolFlow && Math.abs(selectedSymbolFlow.cvd.slope) > 0.01 ? "CVD" : null,
+      selectedSymbolFlow && Math.abs(selectedSymbolFlow.cvd.slope) > 0.01 ? "Order Flow" : null,
       liquidation5m > 0 ? "Liquidations" : null
     ]);
     const whyNotTrade = row.whyNotTrade ?? [];
@@ -7840,7 +8102,7 @@ export function ScalpStationApp({
     const riskBlocker = killSwitchBlocked
       ? "Kill Switch"
       : safeToAddBlocked
-        ? "Safe-To-Add"
+        ? "Position Risk"
         : accountBlocked
           ? "Account"
           : riskCritical
@@ -7922,18 +8184,18 @@ export function ScalpStationApp({
           tone: whyThisMattersConfidenceTone(confidence)
         },
         {
-          label: "Funding",
+          label: "Funding Rate",
           value: funding,
           detail: formatPercent(fundingRate * 100, 4),
           tone: whyThisMattersFundingTone(funding)
         },
         {
-          label: "Flow",
+          label: "Order Flow",
           value: flow,
           detail: selectedSymbolFlow
-            ? `CVD ${selectedSymbolFlow.cvd.slope.toFixed(2)}, ${
+            ? `Order Flow (CVD) ${selectedSymbolFlow.cvd.slope.toFixed(2)}, ${
                 isFreshOpenInterest(selectedSymbolFlow)
-                  ? `OI 5m ${formatPercent(selectedSymbolFlow.openInterest.oiChange5m, 2)}`
+                  ? `Open Interest (OI) 5m ${formatPercent(selectedSymbolFlow.openInterest.oiChange5m, 2)}`
                   : formatOpenInterestFreshness(selectedSymbolFlow)
               }`
             : `Buy ratio ${row.buyRatio60s.toFixed(2)}`,
@@ -7949,7 +8211,7 @@ export function ScalpStationApp({
           label: "Risk Blocker",
           value: riskBlocker,
           detail:
-            riskBlocker === "Safe-To-Add"
+            riskBlocker === "Position Risk"
               ? selectedSymbolCapacity?.reason ?? "Position capacity blocks adding."
               : riskBlocker === "Kill Switch"
                 ? "Live safety or risk orchestrator kill switch is active."
@@ -8648,11 +8910,7 @@ export function ScalpStationApp({
                         <Cell className="font-medium text-slate-100">
                           {formatPairLabel(position.symbol)}
                         </Cell>
-                        <Cell
-                          className={
-                            position.side === "LONG" ? "text-positive" : "text-negative"
-                          }
-                        >
+                        <Cell className={getBiasVisual(position.side).textClass}>
                           {position.side}
                         </Cell>
                         <Cell>{compactUsd(position.notionalUsd)}</Cell>
@@ -8686,6 +8944,7 @@ export function ScalpStationApp({
                           <span className="ml-2">
                             {position.riskScore.toFixed(1)} / {position.portfolioRiskLevel}
                           </span>
+                          <PlainMeaning>{explainRiskState(position.riskLevel)}</PlainMeaning>
                         </Cell>
                         <Cell className={flowBiasClasses(position.risk.flow.directionalBias)}>
                           {position.risk.flow.flowPressureScore.toFixed(1)}
@@ -11175,7 +11434,7 @@ export function ScalpStationApp({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-            Review Statistics
+            Advanced Review Statistics
           </h2>
           <p className="text-xs text-slate-500">
             review outcomes, decision evidence and realized follow-through
@@ -11386,10 +11645,10 @@ export function ScalpStationApp({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-            Knowledge
+            Trading Lessons
           </h2>
           <p className="text-xs text-slate-500">
-            system memory: known links, unknown gaps and reconstruction coverage
+            saved lessons, missing links and reconstruction coverage
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -11497,7 +11756,7 @@ export function ScalpStationApp({
         <div className="mx-auto max-w-[1800px] px-3 py-2">
           <div className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-4 py-2 text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-200">
-              Review Mode: review, replay, knowledge, statistics, learning
+              Review mode: trade summary first, replay and lessons when needed
             </p>
           </div>
         </div>
@@ -11547,7 +11806,7 @@ export function ScalpStationApp({
                 <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
                   Overview
                 </h2>
-                <p className="text-[11px] text-slate-500">market breadth snapshot</p>
+                <p className="text-[11px] text-slate-500">trader-first market board</p>
               </div>
               <div className="flex items-center gap-2">
                 {renderDashboardPanelHandles("overview")}
@@ -11559,45 +11818,268 @@ export function ScalpStationApp({
             </div>
 
             {!collapsedSections.overview ? (
-              <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-6">
-                <OverviewCard
-                  title="Breadth"
-                  value={
-                    frame
-                      ? `${frame.overview.advancingCount} / ${frame.overview.decliningCount}`
-                      : "--"
-                  }
-                  detail="advancers / decliners"
-                />
-                <OverviewCard
-                  title="Pulse"
-                  value={frame ? frame.overview.marketPulse.toFixed(1) : "--"}
-                  detail={frame?.overview.dominantRegime ?? "waiting"}
-                />
-                <OverviewCard
-                  title="Top Long"
-                  value={frame?.overview.topLongSymbol ?? "--"}
-                  detail="highest long bias"
-                />
-                <OverviewCard
-                  title="Top Short"
-                  value={frame?.overview.topShortSymbol ?? "--"}
-                  detail="highest short bias"
-                />
-                <OverviewCard
-                  title="Hot Liquidations"
-                  value={frame ? compactUsd(frame.overview.hotLiquidationsUsd) : "--"}
-                  detail="recent 5m across leaders"
-                />
-                <OverviewCard
-                  title="Unified Regime"
-                  value={leadRegime?.bias ?? "--"}
-                  detail={
-                    leadRegime
-                      ? `score ${leadRegime.finalScore.toFixed(2)} | conf ${(leadRegimeLearning?.confidence ?? leadRegime.confidence).toFixed(0)}%`
-                      : "waiting"
-                  }
-                />
+              <div className="mt-3 space-y-4">
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+                  <OverviewCard
+                    title="Breadth"
+                    value={
+                      frame
+                        ? `${frame.overview.advancingCount} / ${frame.overview.decliningCount}`
+                        : "--"
+                    }
+                    detail="advancers / decliners"
+                  />
+                  <OverviewCard
+                    title="Pulse"
+                    value={frame ? frame.overview.marketPulse.toFixed(1) : "--"}
+                    detail={frame?.overview.dominantRegime ?? "waiting"}
+                  />
+                  <OverviewCard
+                    title="Top Long"
+                    value={frame?.overview.topLongSymbol ?? "--"}
+                    detail="highest long bias"
+                  />
+                  <OverviewCard
+                    title="Top Short"
+                    value={frame?.overview.topShortSymbol ?? "--"}
+                    detail="highest short bias"
+                  />
+                  <OverviewCard
+                    title="Hot Liquidations"
+                    value={frame ? compactUsd(frame.overview.hotLiquidationsUsd) : "--"}
+                    detail="recent 5m across leaders"
+                  />
+                  <OverviewCard
+                    title="Unified Regime"
+                    value={leadRegime?.bias ?? "--"}
+                    detail={
+                      leadRegime
+                        ? `score ${leadRegime.finalScore.toFixed(2)} | conf ${(leadRegimeLearning?.confidence ?? leadRegime.confidence).toFixed(0)}%`
+                        : "waiting"
+                    }
+                  />
+                </div>
+
+                <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-200">
+                        Top Opportunities
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Trader-first ranking built from score, order flow, funding rate and risk context.
+                      </p>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {opportunityRows.length ? `${opportunityRows.length} ranked` : "waiting for ranked rows"}
+                    </div>
+                  </div>
+
+                  {allTopOpportunitiesWaiting ? (
+                    <div className="mt-3 rounded-lg border border-caution/30 bg-caution/10 px-3 py-2 text-sm text-caution">
+                      All current setups are WAIT. Ranking still shows the strongest relative candidates because the main blockers are{" "}
+                      {allTopOpportunityReasons.length
+                        ? allTopOpportunityReasons.join(", ")
+                        : "thin confirmation"}.
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 grid gap-3 xl:grid-cols-2 2xl:grid-cols-4">
+                    <OpportunityHighlightCard
+                      title="Best Long"
+                      opportunity={bestLongOpportunity}
+                      emptyDetail="No long-biased row survived the current filter."
+                      onSelect={focusSymbol}
+                    />
+                    <OpportunityHighlightCard
+                      title="Best Short"
+                      opportunity={bestShortOpportunity}
+                      emptyDetail="No short-biased row survived the current filter."
+                      onSelect={focusSymbol}
+                    />
+                    <OpportunityHighlightCard
+                      title="Highest Conviction"
+                      opportunity={highestConvictionOpportunity}
+                      emptyDetail="Conviction needs score and flow context."
+                      onSelect={focusSymbol}
+                    />
+                    <OpportunityHighlightCard
+                      title="Highest Risk"
+                      opportunity={highestRiskOpportunity}
+                      emptyDetail="Risk ranking is waiting for rows."
+                      onSelect={focusSymbol}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.95fr)]">
+                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-200">
+                          Opportunity Ranking
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Sorted by opportunity score. Relative leaders still show when the board is in wait mode.
+                        </p>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        score first
+                      </div>
+                    </div>
+
+                    <div className="scrollbar-thin mt-3 overflow-x-auto">
+                      {topOpportunityRows.length ? (
+                        <table className="min-w-full text-sm">
+                          <thead className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                            <tr>
+                              <HeaderCell>Symbol</HeaderCell>
+                              <HeaderCell>Score</HeaderCell>
+                              <HeaderCell>Direction</HeaderCell>
+                              <HeaderCell>Conviction</HeaderCell>
+                              <HeaderCell>Risk</HeaderCell>
+                              <HeaderCell>Funding Rate</HeaderCell>
+                              <HeaderCell>Open Interest (OI)</HeaderCell>
+                              <HeaderCell>Order Flow (CVD)</HeaderCell>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {topOpportunityRows.map((item) => (
+                              <tr
+                                key={`opportunity-rank-${item.row.symbol}`}
+                                onClick={() => focusSymbol(item.row.symbol)}
+                                className={`cursor-pointer border-t border-white/5 transition hover:bg-white/5 ${
+                                  selectedSymbol === item.row.symbol ? "bg-accent/10" : ""
+                                }`}
+                              >
+                                <Cell className="whitespace-normal">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-100">
+                                      {formatPairLabel(item.row.symbol)}
+                                    </span>
+                                    <span
+                                      className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${traderOpportunityVerdictClasses(
+                                        item.verdict
+                                      )}`}
+                                    >
+                                      {item.verdict}
+                                    </span>
+                                  </div>
+                                </Cell>
+                                <Cell>
+                                  <span className={`font-semibold ${scoreColor(item.score)}`}>
+                                    {item.score.toFixed(1)}
+                                  </span>
+                                </Cell>
+                                <Cell>
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${opportunityDirectionClasses(
+                                      item.direction
+                                    )}`}
+                                  >
+                                    {item.direction}
+                                  </span>
+                                </Cell>
+                                <Cell>{item.conviction}/100</Cell>
+                                <Cell>
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${riskLevelClasses(
+                                      item.row.riskLevel
+                                    )}`}
+                                  >
+                                    {item.row.riskLevel} {item.risk}
+                                  </span>
+                                  <PlainMeaning>{item.riskExplanation}</PlainMeaning>
+                                </Cell>
+                                <Cell>
+                                  <div>{item.fundingLabel}</div>
+                                  <PlainMeaning>{item.fundingExplanation}</PlainMeaning>
+                                </Cell>
+                                <Cell>
+                                  <div>{item.openInterestLabel}</div>
+                                  <PlainMeaning>{item.openInterestExplanation}</PlainMeaning>
+                                </Cell>
+                                <Cell>
+                                  <div>{item.flowLabel}</div>
+                                  <PlainMeaning>{item.flowExplanation}</PlainMeaning>
+                                </Cell>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="rounded-md border border-dashed border-white/10 bg-white/5 px-4 py-6 text-center text-sm text-slate-500">
+                          Waiting for scored rows before ranking opportunities.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-200">
+                          Trade Thesis
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Fast readout for the strongest relative setups on the board.
+                        </p>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        top {topOpportunityTheses.length || 0}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-3">
+                      {topOpportunityTheses.length ? (
+                        topOpportunityTheses.map((item) => (
+                          <button
+                            key={`thesis-${item.row.symbol}`}
+                            type="button"
+                            onClick={() => focusSymbol(item.row.symbol)}
+                            className="w-full rounded-lg border border-white/10 bg-panel px-3 py-3 text-left transition hover:border-accent/30 hover:bg-white/5"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-100">
+                                {formatPairLabel(item.row.symbol)}
+                              </span>
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${opportunityDirectionClasses(
+                                  item.direction
+                                )}`}
+                              >
+                                {item.direction}
+                              </span>
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${traderOpportunityVerdictClasses(
+                                  item.verdict
+                                )}`}
+                              >
+                                {item.verdict}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm leading-6 text-slate-300">
+                              {item.thesis}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                              <span>score {item.score.toFixed(1)}</span>
+                              <span>conviction {item.conviction}/100</span>
+                              <span>risk {item.row.riskLevel}</span>
+                            </div>
+                            <PlainMeaning>
+                              {item.decisionExplanation} {item.fundingExplanation} {item.openInterestExplanation}
+                            </PlainMeaning>
+                            <ScreenerWhyChips row={item.row} compact />
+                          </button>
+                        ))
+                      ) : (
+                        <div className="rounded-md border border-dashed border-white/10 bg-white/5 px-4 py-6 text-center text-sm text-slate-500">
+                          No thesis yet because the current frame has no ranked setups.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : null}
           </section>
@@ -12092,11 +12574,11 @@ export function ScalpStationApp({
                                   </button>
                                   <button
                                     type="button"
-                                    title="Open Advanced Symbol Focus"
+                                    title="Open optional Advanced Symbol Focus"
                                     onClick={() => openSymbolFocus(row.symbol)}
                                     className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-accent transition hover:border-accent/60 hover:text-white"
                                   >
-                                    Advanced Symbol Focus
+                                    Advanced Focus
                                   </button>
                                 </div>
                               </div>
@@ -12767,7 +13249,7 @@ export function ScalpStationApp({
                     Execution
                   </h2>
                   <span className="text-xs text-slate-500">
-                    ticket, preflight, Safe-To-Add and readiness; account stays connectivity/status
+                    ticket, Safety Check, Position Risk and readiness; account stays connectivity/status
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -12784,10 +13266,10 @@ export function ScalpStationApp({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                      Execution Readiness
+                      Ready To Enter
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
-                      Display-only ticket, preflight and backend readiness state.
+                      Display-only ticket, Safety Check and backend readiness state.
                     </div>
                   </div>
                   <span
@@ -12804,11 +13286,11 @@ export function ScalpStationApp({
                     value={executionWorkspaceState.ticketStatus}
                   />
                   <Stat
-                    label="Preflight State"
+                    label="Safety Check"
                     value={executionWorkspaceState.preflightStatus}
                   />
                   <Stat
-                    label="Safe-To-Add State"
+                    label="Position Risk"
                     value={executionWorkspaceState.safeToAddStatus}
                   />
                   <Stat
@@ -13093,8 +13575,8 @@ export function ScalpStationApp({
                       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
                         <div className="grid grid-cols-2 gap-2">
                           {[
-                            ["LONG", "Buy / Long", "border-positive/35 bg-positive/10 text-positive hover:border-positive/60"],
-                            ["SHORT", "Sell / Short", "border-negative/35 bg-negative/10 text-negative hover:border-negative/60"]
+                            ["LONG", "Buy / Long", `${getBiasVisual("LONG").badgeClass} hover:border-positive/60`],
+                            ["SHORT", "Sell / Short", `${getBiasVisual("SHORT").badgeClass} hover:border-negative/60`]
                           ].map(([side, label, classes]) => (
                             <button
                               key={side}
@@ -13495,77 +13977,88 @@ export function ScalpStationApp({
                         </span>
                       </div>
 
-                      <div className="rounded-md border border-accent/20 bg-accent/5 px-3 py-3">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-accent">
-                              Plan
+                      <details className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300">
+                        <summary className="cursor-pointer list-item text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                          Supporting details
+                        </summary>
+                        <div className="mt-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                                Trade Plan
+                              </div>
+                              <div className="mt-1 text-sm font-medium text-slate-100">
+                                Current ticket snapshot
+                              </div>
                             </div>
-                            <div className="mt-1 text-sm font-medium text-slate-100">
-                              Trade Plan
+                            <div className="flex flex-wrap gap-1.5">
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${cockpitStatusClasses(
+                                  tradePlan.safetyStatus
+                                )}`}
+                              >
+                                {tradePlan.safetyStatus}
+                              </span>
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${cockpitStatusClasses(
+                                  tradePlan.preflightStatus
+                                )}`}
+                              >
+                                safety {tradePlan.preflightStatus}
+                              </span>
                             </div>
                           </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            <span
-                              className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${cockpitStatusClasses(
-                                tradePlan.safetyStatus
-                              )}`}
+                          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3 xl:grid-cols-4">
+                            {tradePlan.items.map(([label, value]) => (
+                              <Stat key={label} label={label} value={value} />
+                            ))}
+                          </div>
+                          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                            <div
+                              className={`rounded-md border px-3 py-2 text-xs ${
+                                tradePlan.missingFields.length > 0
+                                  ? "border-caution/30 bg-caution/10 text-caution"
+                                  : "border-positive/25 bg-positive/10 text-positive"
+                              }`}
                             >
-                              {tradePlan.safetyStatus}
-                            </span>
-                            <span
-                              className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${cockpitStatusClasses(
-                                tradePlan.preflightStatus
-                              )}`}
-                            >
-                              preflight {tradePlan.preflightStatus}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3 xl:grid-cols-4">
-                          {tradePlan.items.map(([label, value]) => (
-                            <Stat key={label} label={label} value={value} />
-                          ))}
-                        </div>
-                        <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                          <div
-                            className={`rounded-md border px-3 py-2 text-xs ${
-                              tradePlan.missingFields.length > 0
-                                ? "border-caution/30 bg-caution/10 text-caution"
-                                : "border-positive/25 bg-positive/10 text-positive"
-                            }`}
-                          >
-                            <div className="text-[10px] uppercase tracking-[0.16em]">
-                              Missing Fields
+                              <div className="text-[10px] uppercase tracking-[0.16em]">
+                                Missing Fields
+                              </div>
+                              <div className="mt-1 leading-5">
+                                {tradePlan.missingFields.length > 0
+                                  ? tradePlan.missingFields.join(", ")
+                                  : "No missing plan field in the current ticket snapshot."}
+                              </div>
                             </div>
-                            <div className="mt-1 leading-5">
-                              {tradePlan.missingFields.length > 0
-                                ? tradePlan.missingFields.join(", ")
-                                : "No missing plan field in the current ticket snapshot."}
+                            <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
+                              <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                                Audit / Confirmation Reason
+                              </div>
+                              <div className="mt-1 leading-5">{tradePlan.auditReason}</div>
                             </div>
                           </div>
-                          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
-                            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                              Audit / Confirmation Reason
+                          {tradePlan.preflightState === "loading" || tradePlan.preflightState === "stale" ? (
+                            <div className="mt-2 rounded-md border border-caution/30 bg-caution/10 px-3 py-2 text-xs text-caution">
+                              Safety Check is {tradePlan.preflightState}. This card shows the current UI plan; backend validation remains the execution source of truth.
+                              <PlainMeaning>
+                                {explainFreshnessState(tradePlan.preflightState, "Safety Check")}
+                              </PlainMeaning>
                             </div>
-                            <div className="mt-1 leading-5">{tradePlan.auditReason}</div>
-                          </div>
+                          ) : null}
                         </div>
-                        {tradePlan.preflightState === "loading" || tradePlan.preflightState === "stale" ? (
-                          <div className="mt-2 rounded-md border border-caution/30 bg-caution/10 px-3 py-2 text-xs text-caution">
-                            Preflight is {tradePlan.preflightState}. This card shows the current UI plan; backend validation remains the execution source of truth.
-                          </div>
-                        ) : null}
-                      </div>
+                      </details>
 
                       <div className="space-y-3 rounded-md border border-white/10 bg-black/20 px-3 py-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                              Safety
+                              Execution Readiness
                             </div>
                             <div className="mt-1 text-sm font-medium text-slate-200">
-                              Preflight, account, and sizing context
+                              Ready To Enter
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              Safety Check, Position Risk, and final entry state
                             </div>
                           </div>
                           <span
@@ -13579,10 +14072,13 @@ export function ScalpStationApp({
 
                       <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs">
                         <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                              Position Risk
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-400">Safe-To-Add</div>
+                          </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                              Safe-To-Add
-                            </span>
                             <span
                               className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${cockpitStatusClasses(
                                 normalizeSafeToCockpitStatus(orderEntrySafeToAddStatus)
@@ -13622,6 +14118,12 @@ export function ScalpStationApp({
                         >
                           {orderEntrySafeToAddDetail}
                         </div>
+                        <PlainMeaning>
+                          {explainExecutionBlocker({
+                            safeToAddStatus: orderEntrySafeToAddStatus,
+                            reason: orderEntrySafeToAddDetail
+                          })}
+                        </PlainMeaning>
                         {orderEntrySafeToAddAccountBlockers.length > 0 ? (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {orderEntrySafeToAddAccountBlockers.map((reason) => (
@@ -13643,8 +14145,9 @@ export function ScalpStationApp({
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                              Why confirm state?
+                              Ready To Enter
                             </div>
+                            <div className="mt-1 text-[11px] text-slate-400">Execution Readiness</div>
                             <div
                               className={`mt-1 text-sm font-medium ${
                                 orderConfirmExplain.disabledReason
@@ -13656,7 +14159,7 @@ export function ScalpStationApp({
                             >
                               {orderConfirmExplain.disabledReason ??
                                 orderConfirmExplain.enabledWarning ??
-                                "Confirm can be staged. Backend preflight remains the source of truth."}
+                                "Confirm can be staged. Backend safety checks remain the source of truth."}
                             </div>
                           </div>
                           <div className="flex flex-wrap gap-1.5">
@@ -13665,7 +14168,7 @@ export function ScalpStationApp({
                                 preflightCockpitStatus(orderConfirmExplain.preflightState)
                               )}`}
                             >
-                              preflight {preflightCockpitStatus(orderConfirmExplain.preflightState)}
+                              safety {preflightCockpitStatus(orderConfirmExplain.preflightState)}
                             </span>
                             <span
                               className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${cockpitStatusClasses(
@@ -13676,41 +14179,56 @@ export function ScalpStationApp({
                             </span>
                           </div>
                         </div>
-                        <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                          <ExplainList
-                            title="Blockers"
-                            tone="negative"
-                            items={orderConfirmExplain.blockers}
-                            empty="No blocking UI/preflight reason in the current snapshot."
-                          />
-                          <ExplainList
-                            title="Warnings"
-                            tone="caution"
-                            items={orderConfirmExplain.warnings}
-                            empty="No warning in the current snapshot."
-                          />
-                          <ExplainList
-                            title="Account Blockers"
-                            tone="negative"
-                            items={orderConfirmExplain.accountBlockers}
-                            empty="No account-level blocker surfaced."
-                          />
-                          <ExplainList
-                            title="Exchange Filters"
-                            tone="neutral"
-                            items={orderConfirmExplain.exchangeFilterNotes}
-                            empty="No exchange filter note yet."
-                          />
-                          <ExplainList
-                            title="Risk Sizing Notes"
-                            tone="neutral"
-                            items={orderConfirmExplain.riskSizingNotes}
-                            empty="No sizing note yet."
-                          />
-                          <div className="rounded-md border border-caution/25 bg-caution/10 p-2 text-[11px] leading-5 text-caution">
-                            UI explains the current ticket and preflight state. It does not promise safety or replace backend validation.
+                        <PlainMeaning>
+                          {explainExecutionBlocker({
+                            preflightState: orderConfirmExplain.preflightState,
+                            safeToAddStatus: orderConfirmExplain.safeToAddStatus,
+                            reason:
+                              orderConfirmExplain.disabledReason ??
+                              orderConfirmExplain.enabledWarning ??
+                              null
+                          })}
+                        </PlainMeaning>
+                        <details className="mt-3 rounded-md border border-white/10 bg-black/20 p-2 text-slate-300">
+                          <summary className="cursor-pointer list-item text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                            Show execution diagnostics
+                          </summary>
+                          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                            <ExplainList
+                              title="Blockers"
+                              tone="negative"
+                              items={orderConfirmExplain.blockers}
+                              empty="No blocking UI/safety reason in the current snapshot."
+                            />
+                            <ExplainList
+                              title="Warnings"
+                              tone="caution"
+                              items={orderConfirmExplain.warnings}
+                              empty="No warning in the current snapshot."
+                            />
+                            <ExplainList
+                              title="Account Blockers"
+                              tone="negative"
+                              items={orderConfirmExplain.accountBlockers}
+                              empty="No account-level blocker surfaced."
+                            />
+                            <ExplainList
+                              title="Exchange Filters"
+                              tone="neutral"
+                              items={orderConfirmExplain.exchangeFilterNotes}
+                              empty="No exchange filter note yet."
+                            />
+                            <ExplainList
+                              title="Risk Sizing Notes"
+                              tone="neutral"
+                              items={orderConfirmExplain.riskSizingNotes}
+                              empty="No sizing note yet."
+                            />
+                            <div className="rounded-md border border-caution/25 bg-caution/10 p-2 text-[11px] leading-5 text-caution">
+                              UI explains the current ticket and safety state. It does not promise safety or replace backend validation.
+                            </div>
                           </div>
-                        </div>
+                        </details>
                       </div>
                       </div>
 
@@ -13718,10 +14236,10 @@ export function ScalpStationApp({
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                              Confirm
+                              Enter Order
                             </div>
                             <div className="mt-1 text-sm font-medium text-slate-200">
-                              Stage first, send only from Execution Ticket
+                              Stage first, send only from the Execution Ticket
                             </div>
                           </div>
                           <span
@@ -13776,6 +14294,9 @@ export function ScalpStationApp({
                               required
                             </span>
                           </div>
+                          <PlainMeaning>
+                            {explainDecisionState("WAIT")} Darra needs a saved decision before confirm.
+                          </PlainMeaning>
                           <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
                             <Stat
                               label="Action"
@@ -14676,14 +15197,14 @@ export function ScalpStationApp({
               <button
                 type="button"
                 onClick={() => openSymbolFocus(selectedSymbol)}
-                title="Open Advanced Symbol Focus workspace"
+                title="Open optional Advanced Symbol Focus workspace"
                 className={`rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.16em] transition ${
                   selectedSymbol
                     ? "border-accent/40 bg-accent/10 text-accent hover:border-accent/60 hover:text-white"
                     : "border-white/10 bg-white/5 text-slate-300 hover:border-accent/40 hover:text-accent"
                 }`}
               >
-                Advanced Focus: {selectedSymbol ?? "none / Select symbol"}
+                Advanced Focus (optional): {selectedSymbol ?? "none / Select symbol"}
               </button>
               <button
                 onClick={() => setSoundEnabled(!uiPreferences.soundEnabled)}
@@ -14753,7 +15274,7 @@ export function ScalpStationApp({
                     <ModuleInfoButton moduleId="decisionDashboard" />
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    Read-only chain state: Signal -&gt; Decision -&gt; Context -&gt; Execution -&gt; Positions -&gt; Review -&gt; Knowledge.
+                    Read-only chain state: Signal -&gt; Decision -&gt; Context -&gt; Execution -&gt; Positions -&gt; Review -&gt; Trading Lessons.
                   </p>
                 </div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-400">
@@ -14834,7 +15355,7 @@ export function ScalpStationApp({
             <div className="mt-2 rounded-lg border border-white/10 bg-black/20 p-3">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  Why This Matters Now
+                  Why It Matters
                 </span>
                 <span className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
                   selected-symbol summary
@@ -15328,7 +15849,7 @@ const PaperPositionsTable = memo(function PaperPositionsTable({
               return (
                 <tr key={position.paperPositionId}>
                   <Cell>{position.symbol}</Cell>
-                  <Cell className={position.side === "LONG" ? "text-positive" : "text-negative"}>
+                  <Cell className={getBiasVisual(position.side).textClass}>
                     {position.side}
                   </Cell>
                   <Cell>{formatPaperPositionQuantity(position.quantity)}</Cell>
@@ -15921,11 +16442,7 @@ const learningKeyClasses = (
   }
 
   if (kind === "direction") {
-    return key === "LONG"
-      ? "border-positive/30 bg-positive/10 text-positive"
-      : key === "SHORT"
-        ? "border-negative/30 bg-negative/10 text-negative"
-        : "border-white/10 bg-white/5 text-slate-200";
+    return getDirectionBadgeClass(key);
   }
 
   return "border-white/10 bg-white/5 text-slate-200";
@@ -15960,6 +16477,221 @@ function ChainHealthPill({ label, present }: { label: string; present: boolean }
       <span>{present ? "✓" : "✗"}</span>
       <span>{label}</span>
     </span>
+  );
+}
+
+type ReviewCoachTone = "good" | "improve" | "repeat";
+
+interface ReviewCoachSection {
+  title: "GOOD" | "IMPROVE" | "REPEAT";
+  tone: ReviewCoachTone;
+  items: string[];
+}
+
+const reviewCoachCardClasses = (tone: ReviewCoachTone): string => {
+  if (tone === "good") {
+    return "border-positive/25 bg-positive/5";
+  }
+
+  if (tone === "improve") {
+    return "border-caution/25 bg-caution/5";
+  }
+
+  return "border-accent/25 bg-accent/5";
+};
+
+const reviewCoachTitleClasses = (tone: ReviewCoachTone): string => {
+  if (tone === "good") {
+    return "text-positive";
+  }
+
+  if (tone === "improve") {
+    return "text-caution";
+  }
+
+  return "text-accent";
+};
+
+const normalizeReviewDirection = (
+  entry: JournalEntryRecord | null,
+  replay: DecisionReplayPayload | null
+): "LONG" | "SHORT" | null => {
+  if (entry?.side === "long") {
+    return "LONG";
+  }
+
+  if (entry?.side === "short") {
+    return "SHORT";
+  }
+
+  const firstOrderSide = replay?.chain.orders[0]?.side ?? null;
+
+  if (firstOrderSide === "BUY") {
+    return "LONG";
+  }
+
+  if (firstOrderSide === "SELL") {
+    return "SHORT";
+  }
+
+  return null;
+};
+
+const buildReviewCoachSections = ({
+  selectedEntry,
+  decisionReplay,
+  completeness
+}: {
+  selectedEntry: JournalEntryRecord | null;
+  decisionReplay: DecisionReplayPayload | null;
+  completeness: number | null;
+}): ReviewCoachSection[] => {
+  const review = decisionReplay?.chain.decisionReview ?? null;
+  const summary = decisionReplay?.summary ?? null;
+  const chain = decisionReplay?.chain ?? null;
+  const direction = normalizeReviewDirection(selectedEntry, decisionReplay);
+  const pnl = selectedEntry?.pnl ?? null;
+  const lifecycleStatus = chain?.positionLifecycle?.status ?? null;
+  const decisionAction = chain?.tradeDecisionContext?.decision ?? null;
+  const decisionStatus = chain?.tradeDecisionContext?.status ?? null;
+  const decisionQuality = chain?.tradeDecisionContext?.decisionQualityScore ?? null;
+  const missingLinks = chain?.missingLinks ?? summary?.missingLinks ?? [];
+  const hasReplayContext = Boolean(decisionReplay);
+  const chainComplete =
+    Boolean(summary?.signalPresent) &&
+    Boolean(summary?.decisionPresent) &&
+    Boolean(summary?.orderPresent) &&
+    Boolean(summary?.lifecyclePresent) &&
+    Boolean(summary?.reviewPresent) &&
+    missingLinks.length === 0;
+  const hasProtectiveLevels = (chain?.orders ?? []).some(
+    (order) =>
+      typeof order.stopLossPrice === "number" ||
+      typeof order.takeProfitPrice === "number" ||
+      order.protectiveKind !== null
+  );
+  const ruleViolations = review?.ruleViolations ?? [];
+  const playbookTags = review?.playbookTags ?? [];
+  const good: string[] = [];
+  const improve: string[] = [];
+  const repeat: string[] = [];
+
+  if (direction && typeof pnl === "number" && pnl > 0) {
+    good.push(`Trade finished green on the planned ${direction.toLowerCase()} idea.`);
+  }
+
+  if (chainComplete) {
+    good.push("Review chain is complete.");
+  }
+
+  if (hasProtectiveLevels) {
+    good.push("Protective levels were present.");
+  }
+
+  if (decisionStatus === "linked_to_order" || decisionStatus === "reviewed") {
+    good.push("Decision was saved before execution.");
+  }
+
+  if (typeof completeness === "number" && completeness >= 80) {
+    good.push("Review was complete enough to learn from later.");
+  }
+
+  if (lifecycleStatus === "CLOSED") {
+    good.push("Trade reached a clean closed state.");
+  }
+
+  if (typeof pnl === "number" && pnl < 0) {
+    improve.push("Trade closed red. Review what changed after entry.");
+  }
+
+  if (!hasProtectiveLevels) {
+    improve.push("Protective levels were missing from the replayed order chain.");
+  }
+
+  if (typeof completeness === "number" && completeness < 60) {
+    improve.push("Review completeness is low, so the lesson may be harder to recover later.");
+  }
+
+  if (missingLinks.length > 0 || !hasReplayContext) {
+    improve.push("Replay context is incomplete.");
+  }
+
+  if (lifecycleStatus === "ERROR" || lifecycleStatus === "REJECTED") {
+    improve.push(`Lifecycle ended in ${lifecycleStatus.toLowerCase()}.`);
+  }
+
+  if (typeof decisionQuality === "number" && decisionQuality < 60) {
+    improve.push("Entry quality was not strong. Wait for a cleaner setup.");
+  }
+
+  if (ruleViolations.length > 0) {
+    improve.push("Review flagged rule violations.");
+  }
+
+  if (decisionAction === "ENTER" && (decisionStatus === "linked_to_order" || decisionStatus === "reviewed")) {
+    repeat.push("Save the decision before sending the trade.");
+  }
+
+  if (typeof completeness === "number" && completeness >= 80) {
+    repeat.push("Review completed trades quickly while context is still fresh.");
+  }
+
+  if (hasProtectiveLevels) {
+    repeat.push("Keep placing protective levels before the trade goes live.");
+  }
+
+  if (typeof decisionQuality === "number" && decisionQuality >= 70) {
+    repeat.push("Focus on high-conviction setups.");
+  }
+
+  if (playbookTags.length > 0) {
+    repeat.push("Keep tagging trades so strong patterns stay easy to find later.");
+  }
+
+  if (hasReplayContext && chainComplete) {
+    repeat.push("Use Replay when you want the full trade story, not just the outcome.");
+  }
+
+  if (good.length === 0) {
+    good.push("This trade has some usable review data to build on.");
+  }
+
+  if (improve.length === 0) {
+    improve.push("No clear process issue stands out from the saved review data.");
+  }
+
+  if (repeat.length === 0) {
+    repeat.push("Keep reviewing completed trades so the next setup is easier to judge.");
+  }
+
+  return [
+    { title: "GOOD", tone: "good", items: good.slice(0, 3) },
+    { title: "IMPROVE", tone: "improve", items: improve.slice(0, 3) },
+    { title: "REPEAT", tone: "repeat", items: repeat.slice(0, 3) }
+  ];
+};
+
+function ReviewCoachSectionCard({
+  section
+}: {
+  section: ReviewCoachSection;
+}) {
+  return (
+    <div className={`rounded-lg border p-3 ${reviewCoachCardClasses(section.tone)}`}>
+      <div className={`text-[11px] uppercase tracking-[0.18em] ${reviewCoachTitleClasses(section.tone)}`}>
+        {section.title}
+      </div>
+      <div className="mt-2 space-y-2">
+        {section.items.map((item) => (
+          <div
+            key={`${section.title}:${item}`}
+            className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200"
+          >
+            {item}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -16004,6 +16736,15 @@ function DecisionReviewWorkspace({
     { label: "Position", present: summary?.lifecyclePresent ?? false },
     { label: "Review", present: summary?.reviewPresent ?? false }
   ];
+  const coachSections = useMemo(
+    () =>
+      buildReviewCoachSections({
+        selectedEntry,
+        decisionReplay,
+        completeness
+      }),
+    [completeness, decisionReplay, selectedEntry]
+  );
 
   return (
     <section className="space-y-3 rounded-lg border border-accent/25 bg-accent/5 p-3">
@@ -16011,7 +16752,7 @@ function DecisionReviewWorkspace({
         <div>
           <div className="text-[11px] uppercase tracking-[0.18em] text-accent">Review</div>
           <div className="mt-1 text-xs text-slate-500">
-            Review first, replay when needed.
+            Trade Summary first. Replay and Trading Lessons are optional follow-up tools.
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -16032,7 +16773,7 @@ function DecisionReviewWorkspace({
             onClick={onOpenKnowledge}
             className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-300 transition hover:border-accent/40 hover:text-white"
           >
-            Open Knowledge
+            Open Trading Lessons
           </button>
           <button
             type="button"
@@ -16040,32 +16781,47 @@ function DecisionReviewWorkspace({
             disabled={knowledgeLayerLoading}
             className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-300 transition hover:border-accent/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {knowledgeLayerLoading ? "Loading" : "Refresh"}
+            {knowledgeLayerLoading ? "Loading" : "Refresh Lessons"}
           </button>
         </div>
       </div>
 
-      <div>
-        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-          Review Metadata
+      <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Trade Summary
+            </div>
+            <PlainMeaning>
+              What happened, how complete the saved story is, and what to learn next.
+            </PlainMeaning>
+          </div>
+          <span
+            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+              missingLinks.length > 0
+                ? "border-caution/30 bg-caution/10 text-caution"
+                : "border-positive/30 bg-positive/10 text-positive"
+            }`}
+          >
+            {missingLinks.length > 0 ? "PARTIAL STORY" : "COMPLETE STORY"}
+          </span>
         </div>
-        <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-          <ReviewFact label="symbol" value={review?.symbol ?? selectedEntry?.symbol ?? decisionReplay?.symbol} />
-          <ReviewFact label="status" value={review?.status} />
-          <ReviewFact label="marketRegime" value={review?.marketRegime} />
-          <ReviewFact label="generationSource" value={review?.generationSource} />
-          <ReviewFact label="generationVersion" value={review?.generationVersion} />
-        </div>
-      </div>
-
-      <div>
-        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-          Chain Health
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {chainHealth.map((item) => (
-            <ChainHealthPill key={item.label} label={item.label} present={item.present} />
-          ))}
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <ReviewFact label="Symbol" value={review?.symbol ?? selectedEntry?.symbol ?? decisionReplay?.symbol} />
+          <ReviewFact label="Review Status" value={review?.status} />
+          <ReviewFact label="Market Regime" value={review?.marketRegime} />
+          <ReviewFact
+            label={reviewId ? "Review Score" : "Average Review Score"}
+            value={formatReviewCompleteness(completeness)}
+          />
+          <ReviewFact
+            label="Lessons Snapshot"
+            value={knowledgeLayerUpdatedAt ? formatClock(knowledgeLayerUpdatedAt) : "pending"}
+          />
+          <ReviewFact
+            label="Lesson Scope"
+            value={knowledgeLayer?.scope.symbol ?? `limit ${knowledgeLayer?.scope.limit ?? "--"}`}
+          />
         </div>
         {decisionReplayLoading ? (
           <div className="mt-2 rounded-md border border-accent/20 bg-accent/10 px-3 py-2 text-xs text-accent">
@@ -16079,52 +16835,93 @@ function DecisionReviewWorkspace({
         ) : null}
       </div>
 
-      <div>
-        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-          Missing Links
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {missingLinks.length > 0 ? (
-            missingLinks.map((link) => (
-              <span
-                key={link}
-                className="rounded border border-caution/30 bg-caution/10 px-2 py-0.5 text-[11px] text-caution"
-              >
-                {link}
-              </span>
-            ))
-          ) : (
-            <span className="rounded border border-positive/30 bg-positive/10 px-2 py-0.5 text-[11px] text-positive">
-              none
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-          Review Completeness
-        </div>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          <ReviewFact label={reviewId ? "selectedReview" : "average"} value={formatReviewCompleteness(completeness)} />
-          <ReviewFact
-            label="snapshotUpdated"
-            value={knowledgeLayerUpdatedAt ? formatClock(knowledgeLayerUpdatedAt) : null}
-          />
-          <ReviewFact
-            label="reviewScope"
-            value={knowledgeLayer?.scope.symbol ?? `limit ${knowledgeLayer?.scope.limit ?? "--"}`}
-          />
+      <details className="rounded-lg border border-white/10 bg-black/10 p-3 text-sm text-slate-300">
+        <summary className="cursor-pointer list-item text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+          Show replay and record details
+        </summary>
+        <div className="mt-3 space-y-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Chain Health
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {chainHealth.map((item) => (
+                <ChainHealthPill key={item.label} label={item.label} present={item.present} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Missing Links
+            </div>
+            <PlainMeaning>
+              {missingLinks.length > 0
+                ? "Some steps were not fully recorded, so Replay or Trading Lessons may miss context."
+                : "The trade story is fully linked for replay and review."}
+            </PlainMeaning>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {missingLinks.length > 0 ? (
+                missingLinks.map((link) => (
+                  <span
+                    key={link}
+                    className="rounded border border-caution/30 bg-caution/10 px-2 py-0.5 text-[11px] text-caution"
+                  >
+                    {link}
+                  </span>
+                ))
+              ) : (
+                <span className="rounded border border-positive/30 bg-positive/10 px-2 py-0.5 text-[11px] text-positive">
+                  none
+                </span>
+              )}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Story Completeness
+            </div>
+            <PlainMeaning>
+              Completeness shows how much of the trade story was saved for later learning.
+            </PlainMeaning>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <ReviewFact
+                label={reviewId ? "Selected Review" : "Average"}
+                value={formatReviewCompleteness(completeness)}
+              />
+              <ReviewFact
+                label="Snapshot Updated"
+                value={knowledgeLayerUpdatedAt ? formatClock(knowledgeLayerUpdatedAt) : null}
+              />
+              <ReviewFact
+                label="Replay Review ID"
+                value={replayReviewId ?? "pending"}
+              />
+            </div>
+          </div>
         </div>
         {knowledgeLayerError ? (
           <div className="mt-2 rounded-md border border-negative/30 bg-negative/10 px-3 py-2 text-xs text-negative">
             {knowledgeLayerError}
           </div>
         ) : null}
+      </details>
+
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+          Review Coach
+        </div>
+        <PlainMeaning>
+          Short coaching notes pulled from the saved trade chain, outcome, and review state.
+        </PlainMeaning>
+        <div className="mt-2 grid gap-3 xl:grid-cols-3">
+          {coachSections.map((section) => (
+            <ReviewCoachSectionCard key={section.title} section={section} />
+          ))}
+        </div>
       </div>
 
       <div>
-        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Follow-up</div>
+        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Optional Follow-up</div>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
             <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Replay</div>
@@ -16134,9 +16931,9 @@ function DecisionReviewWorkspace({
             </div>
           </div>
           <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Knowledge</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Trading Lessons</div>
             <div className="mt-1">
-              Open Knowledge for coverage, gaps and system-memory follow-up.
+              Open Trading Lessons for saved lessons, coverage and missing-context follow-up.
             </div>
             <div className="mt-2 text-[11px] text-slate-500">
               {knowledgeLayerUpdatedAt
@@ -16206,7 +17003,7 @@ function KnowledgeWorkspacePanel({
             disabled={loading}
             className="w-full rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-accent transition hover:border-accent/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Loading" : "Load Knowledge"}
+            {loading ? "Loading" : "Load Trading Lessons"}
           </button>
         </div>
       </div>
@@ -16219,7 +17016,7 @@ function KnowledgeWorkspacePanel({
 
       {!snapshot && !loading && !error ? (
         <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
-          <div className="text-sm font-medium text-slate-300">No knowledge snapshot yet.</div>
+          <div className="text-sm font-medium text-slate-300">No trading-lessons snapshot yet.</div>
           <div className="mt-1 text-xs text-slate-500">
             Close paper trades and open Reviews to build system memory.
           </div>
@@ -16241,10 +17038,10 @@ function KnowledgeWorkspacePanel({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.18em] text-accent">
-                  Knowledge
+                  Trading Lessons
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
-                  What the system knows and does not know from the current snapshot.
+                  What the system can already teach from the current snapshot.
                 </div>
               </div>
               <span className="rounded-full border border-accent/25 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-accent">
@@ -18135,6 +18932,88 @@ function OverviewCard({
       <div className="mt-1 truncate text-xl font-semibold text-white">{value}</div>
       <div className="mt-0.5 truncate text-xs text-slate-500">{detail}</div>
     </div>
+  );
+}
+
+function PlainMeaning({ children }: { children: ReactNode }) {
+  return <div className="mt-1 text-[11px] leading-5 text-slate-500">{children}</div>;
+}
+
+function OpportunityHighlightCard({
+  title,
+  opportunity,
+  emptyDetail,
+  onSelect
+}: {
+  title: string;
+  opportunity: TraderOpportunityRow | null;
+  emptyDetail: string;
+  onSelect: (symbol: string) => void;
+}) {
+  if (!opportunity) {
+    return (
+      <div className="rounded-lg border border-dashed border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-500">
+        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{title}</div>
+        <div className="mt-2 text-slate-300">Waiting</div>
+        <div className="mt-1 text-xs text-slate-500">{emptyDetail}</div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(opportunity.row.symbol)}
+      className="w-full rounded-lg border border-white/10 bg-panel px-4 py-4 text-left transition hover:border-accent/30 hover:bg-white/5"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{title}</div>
+          <div className="mt-1 text-lg font-semibold text-slate-100">
+            {formatPairLabel(opportunity.row.symbol)}
+          </div>
+        </div>
+        <div
+          className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] ${opportunityDirectionClasses(
+            opportunity.direction
+          )}`}
+        >
+          {opportunity.direction}
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="rounded-md border border-white/10 bg-black/20 px-2 py-2">
+          <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Score</div>
+          <div className={`mt-1 text-sm font-semibold ${scoreColor(opportunity.score)}`}>
+            {opportunity.score.toFixed(1)}
+          </div>
+        </div>
+        <div className="rounded-md border border-white/10 bg-black/20 px-2 py-2">
+          <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Conviction</div>
+          <div className="mt-1 text-sm font-semibold text-slate-100">
+            {opportunity.conviction}/100
+          </div>
+        </div>
+        <div className="rounded-md border border-white/10 bg-black/20 px-2 py-2">
+          <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Risk</div>
+          <div className="mt-1 text-sm font-semibold text-slate-100">
+            {opportunity.row.riskLevel} {opportunity.risk}
+          </div>
+          <PlainMeaning>{opportunity.riskExplanation}</PlainMeaning>
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm leading-6 text-slate-300">{opportunity.thesis}</p>
+      <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+        <span>{opportunity.fundingLabel}</span>
+        <span>{opportunity.openInterestLabel}</span>
+        <span>{opportunity.flowLabel}</span>
+      </div>
+      <PlainMeaning>
+        {opportunity.decisionExplanation} {opportunity.fundingExplanation} {opportunity.openInterestExplanation}
+      </PlainMeaning>
+    </button>
   );
 }
 
