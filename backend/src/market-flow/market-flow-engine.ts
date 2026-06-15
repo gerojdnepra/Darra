@@ -4,11 +4,23 @@ import { OpenInterestModule } from "./open-interest";
 import type { MarketFlowState } from "./types";
 
 export class MarketFlowEngine {
-  private readonly openInterest = new OpenInterestModule();
+  private readonly openInterest: OpenInterestModule;
   private readonly cvd = new CvdModule();
+
+  constructor(input?: { openInterestStaleAfterMs?: number }) {
+    this.openInterest = new OpenInterestModule(input?.openInterestStaleAfterMs ?? 90_000);
+  }
 
   applyOpenInterest(symbol: string, openInterest: number, timestamp: number): void {
     this.openInterest.applySnapshot(symbol, openInterest, timestamp);
+  }
+
+  markOpenInterestFailure(symbol: string, reason: string, timestamp = Date.now()): void {
+    this.openInterest.recordFailure(symbol, reason, timestamp);
+  }
+
+  buildOpenInterestState(symbol: string, now = Date.now()) {
+    return this.openInterest.build(symbol, now);
   }
 
   applyAggTrade(event: AggTradeEvent): void {

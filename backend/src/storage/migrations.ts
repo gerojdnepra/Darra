@@ -832,6 +832,37 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_order_preflights_decision_context_id
         ON order_preflights(decision_context_id);
     `
+  },
+  {
+    id: 22,
+    name: "create_recovery_audit_events",
+    sql: `
+      CREATE TABLE IF NOT EXISTS recovery_audit_events (
+        id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        symbol TEXT,
+        order_id TEXT,
+        intent_id TEXT,
+        lifecycle_id TEXT,
+        decision_context_id TEXT,
+        review_id TEXT,
+        client_order_id TEXT,
+        exchange_order_id TEXT,
+        message TEXT,
+        payload_json TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_recovery_audit_events_event_type_fingerprint_timestamp
+        ON recovery_audit_events(event_type, fingerprint, timestamp);
+
+      CREATE INDEX IF NOT EXISTS idx_recovery_audit_events_lifecycle_id_timestamp
+        ON recovery_audit_events(lifecycle_id, timestamp);
+
+      CREATE INDEX IF NOT EXISTS idx_recovery_audit_events_order_id_timestamp
+        ON recovery_audit_events(order_id, timestamp);
+    `
   }
 ];
 

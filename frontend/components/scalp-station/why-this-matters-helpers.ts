@@ -4,6 +4,7 @@ import type {
   ScreenerAlert,
   ScreenerRow
 } from "@/lib/types";
+import { isFreshOpenInterest } from "@/lib/open-interest";
 
 export type CommandCenterTone = "positive" | "caution" | "negative" | "accent" | "neutral";
 
@@ -124,14 +125,14 @@ export const whyThisMattersFlowLabel = (
     row.bias === "LONG",
     row.buyRatio60s > 0.52,
     flow ? flow.cvd.slope > 0 : false,
-    flow ? flow.openInterest.oiChange5m > 0 : false,
+    flow ? isFreshOpenInterest(flow) && flow.openInterest.oiChange5m > 0 : false,
     flow?.cvd.divergence === "bullish"
   ].filter(Boolean).length;
   const bearishVotes = [
     row.bias === "SHORT",
     row.buyRatio60s < 0.48,
     flow ? flow.cvd.slope < 0 : false,
-    flow ? flow.openInterest.oiChange5m < 0 : false,
+    flow ? isFreshOpenInterest(flow) && flow.openInterest.oiChange5m < 0 : false,
     flow?.cvd.divergence === "bearish"
   ].filter(Boolean).length;
 

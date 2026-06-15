@@ -77,6 +77,7 @@ import {
 } from "@/components/scalp-station/why-this-matters-helpers";
 import { useCommandCenterState } from "@/hooks/use-command-center-state";
 import { getDesktopBridge } from "@/lib/desktop-shell";
+import { formatOpenInterestFreshness, isFreshOpenInterest } from "@/lib/open-interest";
 import {
   cockpitDemoAlerts,
   cockpitDemoCandles,
@@ -7807,7 +7808,9 @@ export function ScalpStationApp({
     const liquidation5m =
       selectedSymbolLiquidations?.liquidations5m ?? row.liquidation5m;
     const confirmations = uniqueStrings([
-      selectedSymbolFlow && Math.abs(selectedSymbolFlow.openInterest.oiChange5m) > 0.05
+      selectedSymbolFlow &&
+      isFreshOpenInterest(selectedSymbolFlow) &&
+      Math.abs(selectedSymbolFlow.openInterest.oiChange5m) > 0.05
         ? "OI"
         : null,
       selectedSymbolFlow && Math.abs(selectedSymbolFlow.cvd.slope) > 0.01 ? "CVD" : null,
@@ -7928,10 +7931,11 @@ export function ScalpStationApp({
           label: "Flow",
           value: flow,
           detail: selectedSymbolFlow
-            ? `CVD ${selectedSymbolFlow.cvd.slope.toFixed(2)}, OI 5m ${formatPercent(
-                selectedSymbolFlow.openInterest.oiChange5m,
-                2
-              )}`
+            ? `CVD ${selectedSymbolFlow.cvd.slope.toFixed(2)}, ${
+                isFreshOpenInterest(selectedSymbolFlow)
+                  ? `OI 5m ${formatPercent(selectedSymbolFlow.openInterest.oiChange5m, 2)}`
+                  : formatOpenInterestFreshness(selectedSymbolFlow)
+              }`
             : `Buy ratio ${row.buyRatio60s.toFixed(2)}`,
           tone: whyThisMattersFlowTone(flow)
         },
@@ -9243,7 +9247,22 @@ export function ScalpStationApp({
                               : formatRawSymbol(row.symbol)}
                           </span>
                         </Cell>
-                        <Cell>{formatMetricNumber(row.openInterest.currentOI, 0)}</Cell>
+                        <Cell>
+                          <div className="flex flex-col">
+                            <span>{formatMetricNumber(row.openInterest.currentOI, 0)}</span>
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                              {row.openInterest.status === "FRESH"
+                                ? row.openInterest.ageMs !== null
+                                  ? `${Math.max(0, Math.round(row.openInterest.ageMs / 1000))}s old`
+                                  : "fresh"
+                                : row.openInterest.status === "STALE"
+                                  ? row.openInterest.ageMs !== null
+                                    ? `stale ${Math.max(1, Math.round(row.openInterest.ageMs / 60_000))}m`
+                                    : "stale"
+                                  : "unavailable"}
+                            </span>
+                          </div>
+                        </Cell>
                         <Cell className={biasColor(row.openInterest.oiChange5m)}>
                           {formatPercent(row.openInterest.oiChange5m, 2)}
                         </Cell>

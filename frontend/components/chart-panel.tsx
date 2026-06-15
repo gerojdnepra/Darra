@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { compactUsd, formatPercent, formatPrice } from "@/lib/format";
+import { isFreshOpenInterest } from "@/lib/open-interest";
 import type {
   FundingSymbolState,
   LiquidationState,
@@ -324,7 +325,10 @@ const appendPoint = (
     price,
     volume: Math.max(row.tradeNotional5s, row.tradeNotional60s / 12, 0),
     cvd: flow?.cvd.value ?? row.risk?.flow.cvd5mUsd ?? null,
-    oi: flow?.openInterest.currentOI ?? row.risk?.flow.openInterestUsd ?? null
+    oi:
+      flow !== null
+        ? flow.openInterest.currentOI
+        : row.risk?.flow.openInterestUsd ?? null
   };
   const last = next[next.length - 1];
 
@@ -541,6 +545,15 @@ export function ChartPanel({
   const oiRange = valueRange(oiValues);
   const cvdPath = createPath(cvdValues, miniLineWidth, miniLineHeight, cvdRange.min, cvdRange.range);
   const oiPath = createPath(oiValues, miniLineWidth, miniLineHeight, oiRange.min, oiRange.range);
+  const openInterestStripValue = !flow
+    ? "--"
+    : flow.openInterest.status === "UNAVAILABLE"
+      ? "unavailable"
+      : flow.openInterest.status === "STALE"
+        ? flow.openInterest.ageMs !== null
+          ? `stale ${Math.max(1, Math.round(flow.openInterest.ageMs / 60_000))}m`
+          : "stale"
+        : formatMaybePercent(flow.openInterest.oiChange5m, 2);
   const maxVolume = Math.max(...history.map((point) => point.volume), 1);
   const hoveredPoint = hoverState ? history[hoverState.index] ?? null : null;
   const hoveredCandle = hoverState
@@ -1057,7 +1070,11 @@ export function ChartPanel({
       <div className="mt-3 grid gap-2 xl:grid-cols-[repeat(5,minmax(0,1fr))]">
         <MiniStrip label="Volume impulse" value={formatMaybeNumber(row.volumeImpulse, 2)} tone={stripTone(row.volumeImpulse - 1)} />
         <MiniStrip label="CVD" value={flow ? compactUsd(flow.cvd.value) : "--"} tone={stripTone(flow?.cvd.slope)} />
-        <MiniStrip label="OI" value={flow ? formatMaybePercent(flow.openInterest.oiChange5m, 2) : "--"} tone={stripTone(flow?.openInterest.oiChange5m)} />
+        <MiniStrip
+          label="OI"
+          value={openInterestStripValue}
+          tone={isFreshOpenInterest(flow) ? stripTone(flow?.openInterest.oiChange5m) : stripTone(undefined)}
+        />
         <MiniStrip label="Liquidations" value={liquidations ? compactUsd(liquidations.liquidations5m) : "--"} tone={stripTone(row.liquidation5m)} />
         <MiniStrip label="Funding" value={funding ? formatMaybePercent(funding.fundingRate * 100, 4) : formatMaybePercent(row.fundingRate * 100, 4)} tone={stripTone(funding?.fundingRate ?? row.fundingRate)} />
       </div>

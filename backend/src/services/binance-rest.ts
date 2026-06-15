@@ -1,6 +1,12 @@
 import { createHmac } from "node:crypto";
 import { safeNumber } from "../lib/math";
 import { setExchangeFiltersFromExchangeInfo } from "./binance-exchange-filters";
+import {
+  ensureBinanceTimeSyncStarted,
+  getBinanceRecvWindowMs,
+  getBinanceSignedTimestamp,
+  resyncBinanceServerTimeAfterRecvWindowError
+} from "./binance-time-sync";
 import type {
   ExchangeInfoResponse,
   ExchangeInfoSymbol,
@@ -10,7 +16,6 @@ import type {
   RestOpenInterest,
   RestFuturesAccountV3,
   RestPositionRiskV3,
-  ServerTimeResponse,
   RestTicker24h
 } from "../types/binance";
 
@@ -74,22 +79,16 @@ interface JsonRequestOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   headers?: Record<string, string>;
   body?: string;
+  timeoutMs?: number;
 }
 
-interface ServerTimeCacheEntry {
-  offsetMs: number;
-  fetchedAt: number;
-}
-
-const SERVER_TIME_CACHE_TTL_MS = 60_000;
-const serverTimeCache = new Map<string, ServerTimeCacheEntry>();
 const LEVERAGE_BRACKET_CACHE_TTL_MS = 5 * 60 * 1000;
 const leverageBracketCache = new Map<string, BinanceLeverageBracketSnapshot>();
 
 const requestJson = async <T>(url: string, options?: JsonRequestOptions): Promise<T> => {
   const requestInit: RequestInit = {
     method: options?.method ?? "GET",
-    signal: AbortSignal.timeout(10_000)
+    signal: AbortSignal.timeout(options?.timeoutMs ?? 10_000)
   };
 
   if (options?.headers) {
@@ -143,6 +142,77 @@ const buildSignedQuery = (
 const userStreamHeaders = (apiKey: string): Record<string, string> => ({
   "X-MBX-APIKEY": apiKey
 });
+
+type SignedRequestRetryMode = "retry-on-recv-window" | "no-retry";
+
+const isRecvWindowError = (error: unknown): boolean =>
+  error instanceof BinanceApiError &&
+  (error.code === -1021 || /recvwindow|timestamp/i.test(error.message));
+
+const buildSignedRequestUrl = async (
+  restBase: string,
+  apiSecret: string,
+  path: string,
+  params: Record<string, string | number | undefined>
+): Promise<string> => {
+  const timestamp = await getBinanceSignedTimestamp(restBase);
+  const query = buildSignedQuery(apiSecret, {
+    ...params,
+    recvWindow: getBinanceRecvWindowMs(),
+    timestamp
+  });
+
+  return `${restBase}${path}?${query}`;
+};
+
+const signedRequestJson = async <T>(input: {
+  restBase: string;
+  apiKey: string;
+  apiSecret: string;
+  path: string;
+  params: Record<string, string | number | undefined>;
+  method?: JsonRequestOptions["method"];
+  retryMode: SignedRequestRetryMode;
+}): Promise<T> => {
+  ensureBinanceTimeSyncStarted(input.restBase);
+
+  const send = async (): Promise<T> => {
+    const url = await buildSignedRequestUrl(
+      input.restBase,
+      input.apiSecret,
+      input.path,
+      input.params
+    );
+    const options: JsonRequestOptions = {
+      headers: userStreamHeaders(input.apiKey)
+    };
+
+    if (input.method) {
+      options.method = input.method;
+    }
+
+    return requestJson<T>(url, options);
+  };
+
+  try {
+    return await send();
+  } catch (error) {
+    if (!isRecvWindowError(error)) {
+      throw error;
+    }
+
+    await resyncBinanceServerTimeAfterRecvWindowError(
+      input.restBase,
+      error instanceof Error ? error.message : String(error)
+    );
+
+    if (input.retryMode !== "retry-on-recv-window") {
+      throw error;
+    }
+
+    return send();
+  }
+};
 
 const leverageBracketCacheKey = (restBase: string, symbol: string): string =>
   `${restBase.replace(/\/+$/, "")}:${symbol.trim().toUpperCase()}`;
@@ -255,29 +325,6 @@ export const fetchDailyQuoteVolumes = async (
     );
 };
 
-export const fetchServerTime = async (restBase: string): Promise<number> => {
-  const now = Date.now();
-  const cached = serverTimeCache.get(restBase);
-
-  if (cached && now - cached.fetchedAt <= SERVER_TIME_CACHE_TTL_MS) {
-    return now + cached.offsetMs;
-  }
-
-  try {
-    const response = await requestJson<ServerTimeResponse>(`${restBase}/fapi/v1/time`);
-    const fetchedAt = Date.now();
-    const offsetMs = response.serverTime - fetchedAt;
-    serverTimeCache.set(restBase, { offsetMs, fetchedAt });
-    return fetchedAt + offsetMs;
-  } catch (error) {
-    if (cached) {
-      return now + cached.offsetMs;
-    }
-
-    throw error;
-  }
-};
-
 export const startUserDataStream = async (
   restBase: string,
   apiKey: string
@@ -310,33 +357,29 @@ export const fetchPositionRiskSnapshot = async (
   restBase: string,
   apiKey: string,
   apiSecret: string
-): Promise<RestPositionRiskV3[]> => {
-  const serverTime = await fetchServerTime(restBase);
-  const query = buildSignedQuery(apiSecret, {
-    recvWindow: 5_000,
-    timestamp: serverTime
+): Promise<RestPositionRiskV3[]> =>
+  signedRequestJson<RestPositionRiskV3[]>({
+    restBase,
+    apiKey,
+    apiSecret,
+    path: "/fapi/v3/positionRisk",
+    params: {},
+    retryMode: "retry-on-recv-window"
   });
-
-  return requestJson<RestPositionRiskV3[]>(`${restBase}/fapi/v3/positionRisk?${query}`, {
-    headers: userStreamHeaders(apiKey)
-  });
-};
 
 export const fetchFuturesAccountSnapshot = async (
   restBase: string,
   apiKey: string,
   apiSecret: string
-): Promise<RestFuturesAccountV3> => {
-  const serverTime = await fetchServerTime(restBase);
-  const query = buildSignedQuery(apiSecret, {
-    recvWindow: 5_000,
-    timestamp: serverTime
+): Promise<RestFuturesAccountV3> =>
+  signedRequestJson<RestFuturesAccountV3>({
+    restBase,
+    apiKey,
+    apiSecret,
+    path: "/fapi/v3/account",
+    params: {},
+    retryMode: "retry-on-recv-window"
   });
-
-  return requestJson<RestFuturesAccountV3>(`${restBase}/fapi/v3/account?${query}`, {
-    headers: userStreamHeaders(apiKey)
-  });
-};
 
 export const fetchLeverageBrackets = async (
   restBase: string,
@@ -345,19 +388,16 @@ export const fetchLeverageBrackets = async (
   symbol: string
 ): Promise<BinanceLeverageBracket[]> => {
   const normalizedSymbol = symbol.trim().toUpperCase();
-  const serverTime = await fetchServerTime(restBase);
-  const query = buildSignedQuery(apiSecret, {
-    symbol: normalizedSymbol,
-    recvWindow: 5_000,
-    timestamp: serverTime
+  const response = await signedRequestJson<RestLeverageBracketResponse>({
+    restBase,
+    apiKey,
+    apiSecret,
+    path: "/fapi/v1/leverageBracket",
+    params: {
+      symbol: normalizedSymbol
+    },
+    retryMode: "retry-on-recv-window"
   });
-
-  const response = await requestJson<RestLeverageBracketResponse>(
-    `${restBase}/fapi/v1/leverageBracket?${query}`,
-    {
-      headers: userStreamHeaders(apiKey)
-    }
-  );
 
   return normalizeLeverageBracketResponse(normalizedSymbol, response);
 };
@@ -439,30 +479,29 @@ export const placeFuturesOrder = async (
     reduceOnly?: boolean;
     newClientOrderId: string;
   }
-): Promise<RestFuturesOrder> => {
-  const serverTime = await fetchServerTime(restBase);
-  const query = buildSignedQuery(apiSecret, {
-    symbol: params.symbol,
-    side: params.side,
-    type: params.type,
-    quantity: params.quantity,
-    price: params.type === "LIMIT" ? params.price ?? undefined : undefined,
-    stopPrice:
-      params.type === "STOP_MARKET" || params.type === "TAKE_PROFIT_MARKET"
-        ? params.stopPrice ?? undefined
-        : undefined,
-    timeInForce: params.type === "LIMIT" ? "GTC" : undefined,
-    reduceOnly: params.reduceOnly ? "true" : undefined,
-    newClientOrderId: params.newClientOrderId,
-    recvWindow: 5_000,
-    timestamp: serverTime
-  });
-
-  return requestJson<RestFuturesOrder>(`${restBase}/fapi/v1/order?${query}`, {
+): Promise<RestFuturesOrder> =>
+  signedRequestJson<RestFuturesOrder>({
+    restBase,
+    apiKey,
+    apiSecret,
+    path: "/fapi/v1/order",
     method: "POST",
-    headers: userStreamHeaders(apiKey)
+    params: {
+      symbol: params.symbol,
+      side: params.side,
+      type: params.type,
+      quantity: params.quantity,
+      price: params.type === "LIMIT" ? params.price ?? undefined : undefined,
+      stopPrice:
+        params.type === "STOP_MARKET" || params.type === "TAKE_PROFIT_MARKET"
+          ? params.stopPrice ?? undefined
+          : undefined,
+      timeInForce: params.type === "LIMIT" ? "GTC" : undefined,
+      reduceOnly: params.reduceOnly ? "true" : undefined,
+      newClientOrderId: params.newClientOrderId
+    },
+    retryMode: "no-retry"
   });
-};
 
 export const cancelFuturesOrder = async (
   restBase: string,
@@ -472,20 +511,19 @@ export const cancelFuturesOrder = async (
     symbol: string;
     origClientOrderId: string;
   }
-): Promise<RestFuturesOrder> => {
-  const serverTime = await fetchServerTime(restBase);
-  const query = buildSignedQuery(apiSecret, {
-    symbol: params.symbol,
-    origClientOrderId: params.origClientOrderId,
-    recvWindow: 5_000,
-    timestamp: serverTime
-  });
-
-  return requestJson<RestFuturesOrder>(`${restBase}/fapi/v1/order?${query}`, {
+): Promise<RestFuturesOrder> =>
+  signedRequestJson<RestFuturesOrder>({
+    restBase,
+    apiKey,
+    apiSecret,
+    path: "/fapi/v1/order",
     method: "DELETE",
-    headers: userStreamHeaders(apiKey)
+    params: {
+      symbol: params.symbol,
+      origClientOrderId: params.origClientOrderId
+    },
+    retryMode: "no-retry"
   });
-};
 
 export const getFuturesOrder = async (
   restBase: string,
@@ -495,37 +533,35 @@ export const getFuturesOrder = async (
     symbol: string;
     origClientOrderId: string;
   }
-): Promise<RestFuturesOrder> => {
-  const serverTime = await fetchServerTime(restBase);
-  const query = buildSignedQuery(apiSecret, {
-    symbol: params.symbol,
-    origClientOrderId: params.origClientOrderId,
-    recvWindow: 5_000,
-    timestamp: serverTime
+): Promise<RestFuturesOrder> =>
+  signedRequestJson<RestFuturesOrder>({
+    restBase,
+    apiKey,
+    apiSecret,
+    path: "/fapi/v1/order",
+    params: {
+      symbol: params.symbol,
+      origClientOrderId: params.origClientOrderId
+    },
+    retryMode: "retry-on-recv-window"
   });
-
-  return requestJson<RestFuturesOrder>(`${restBase}/fapi/v1/order?${query}`, {
-    headers: userStreamHeaders(apiKey)
-  });
-};
 
 export const getOpenOrders = async (
   restBase: string,
   apiKey: string,
   apiSecret: string,
   symbol?: string
-): Promise<RestFuturesOrder[]> => {
-  const serverTime = await fetchServerTime(restBase);
-  const query = buildSignedQuery(apiSecret, {
-    symbol: symbol?.trim().toUpperCase() || undefined,
-    recvWindow: 5_000,
-    timestamp: serverTime
+): Promise<RestFuturesOrder[]> =>
+  signedRequestJson<RestFuturesOrder[]>({
+    restBase,
+    apiKey,
+    apiSecret,
+    path: "/fapi/v1/openOrders",
+    params: {
+      symbol: symbol?.trim().toUpperCase() || undefined
+    },
+    retryMode: "retry-on-recv-window"
   });
-
-  return requestJson<RestFuturesOrder[]>(`${restBase}/fapi/v1/openOrders?${query}`, {
-    headers: userStreamHeaders(apiKey)
-  });
-};
 
 export const getPositionRisk = async (
   restBase: string,
@@ -536,11 +572,22 @@ export const getPositionRisk = async (
 
 export const fetchOpenInterest = async (
   restBase: string,
-  symbol: string
+  symbol: string,
+  options?: {
+    timeoutMs?: number;
+  }
 ): Promise<RestOpenInterest> => {
   const params = new URLSearchParams({
     symbol: symbol.trim().toUpperCase()
   });
 
-  return requestJson<RestOpenInterest>(`${restBase}/fapi/v1/openInterest?${params.toString()}`);
+  const requestOptions: JsonRequestOptions = {};
+  if (options?.timeoutMs !== undefined) {
+    requestOptions.timeoutMs = options.timeoutMs;
+  }
+
+  return requestJson<RestOpenInterest>(
+    `${restBase}/fapi/v1/openInterest?${params.toString()}`,
+    requestOptions
+  );
 };

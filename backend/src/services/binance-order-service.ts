@@ -13,6 +13,7 @@ import {
   type StoredOrderIntentResponse,
   type StoredPreSubmitOrderIntentRecord
 } from "../storage/order-repository";
+import { recoveryAuditRepository } from "../storage/recovery-audit-repository";
 import { orderPreflightRepository } from "../storage/order-preflight-repository";
 import { tradeDecisionRepository } from "../storage/trade-decision-repository";
 import type { OrderTradeUpdateEvent } from "../types/binance";
@@ -61,6 +62,7 @@ import {
   getPositionRisk,
   placeFuturesOrder
 } from "./binance-rest";
+import { ensureBinanceTimeSyncStarted } from "./binance-time-sync";
 import type {
   AccountStreamHealth,
   BinanceAccountRiskSnapshot
@@ -825,6 +827,9 @@ export class BinanceOrderService {
       lifecycleEmitter: (message) => this.emit(message)
     });
     this.riskLimits = mergeRiskLimits(options.riskLimits);
+    if (options.apiKey?.trim() && options.apiSecret?.trim()) {
+      ensureBinanceTimeSyncStarted(this.restBase);
+    }
     this.recoverPendingPaperMarketOrders();
     if (!options.skipStartupRecovery) {
       void this.recoverLivePositionLifecyclesAuditOnly().catch((error) => {
@@ -4205,7 +4210,7 @@ export class BinanceOrderService {
             matchMethod: "symbol",
             reason: "Lifecycle exists but no exchange position found for symbol."
           });
-          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+          const existing = recoveryAuditRepository.findRecentRecoveryAuditEventByFingerprint(
             "LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION",
             fingerprint,
             dedupWindowMs
@@ -4216,43 +4221,11 @@ export class BinanceOrderService {
               (markerCountsByType["LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION"] || 0) + 1;
             continue;
           }
-          const dummyOrder: OrderStatePayload = {
-            orderId: "",
-            intentId: lifecycle.orderIntentId ?? null,
-            symbol: lifecycle.symbol,
-            side: "BUY",
-            orderType: "MARKET",
-            quantity: 0,
-            price: null,
-            stopPrice: null,
-            stopLossPrice: null,
-            takeProfitPrice: null,
-            status: "NEW",
-            clientOrderId: "",
-            exchangeOrderId: null,
-            sourceWindowId: null,
-            parentOrderId: null,
-            protectiveKind: null,
-            dryRun: false,
-            reduceOnly: false,
-            executedQty: 0,
-            avgPrice: null,
-            lastFilledQty: null,
-            realizedPnl: null,
-            commission: null,
-            commissionAsset: null,
-            lastExecutionType: null,
-            lastTradeTime: null,
-            rejectReason: null,
-            createdAt: startedAt,
-            updatedAt: startedAt,
-            lastEventSource: "paper_engine"
-          };
-          this.emitAuditEvent(
-            dummyOrder,
-            "LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION",
-            "Lifecycle exists but no exchange position found for symbol.",
-            {
+          this.emitRecoveryAuditEvent({
+            eventType: "LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION",
+            fingerprint,
+            message: "Lifecycle exists but no exchange position found for symbol.",
+            payload: {
               recoveryRunId,
               fingerprint,
               reason: "Lifecycle exists but no exchange position found for symbol.",
@@ -4267,8 +4240,12 @@ export class BinanceOrderService {
               closureEvaluation,
               timestamp: startedAt
             },
-            startedAt
-          );
+            timestamp: startedAt,
+            symbol: lifecycle.symbol,
+            intentId: lifecycle.orderIntentId ?? null,
+            lifecycleId: lifecycle.id,
+            decisionContextId: lifecycle.decisionContextId ?? null
+          });
           markerCountsByType["LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION"] =
             (markerCountsByType["LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION"] || 0) + 1;
           continue;
@@ -4313,7 +4290,7 @@ export class BinanceOrderService {
             matchMethod: "symbol",
             reason: "Lifecycle is OPEN/MANAGING but exchange positionAmt is zero."
           });
-          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+          const existing = recoveryAuditRepository.findRecentRecoveryAuditEventByFingerprint(
             "LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED",
             fingerprint,
             dedupWindowMs
@@ -4324,43 +4301,11 @@ export class BinanceOrderService {
               (markerCountsByType["LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED"] || 0) + 1;
             continue;
           }
-          const dummyOrder: OrderStatePayload = {
-            orderId: "",
-            intentId: lifecycle.orderIntentId ?? null,
-            symbol: lifecycle.symbol,
-            side: "BUY",
-            orderType: "MARKET",
-            quantity: 0,
-            price: null,
-            stopPrice: null,
-            stopLossPrice: null,
-            takeProfitPrice: null,
-            status: "NEW",
-            clientOrderId: "",
-            exchangeOrderId: null,
-            sourceWindowId: null,
-            parentOrderId: null,
-            protectiveKind: null,
-            dryRun: false,
-            reduceOnly: false,
-            executedQty: 0,
-            avgPrice: null,
-            lastFilledQty: null,
-            realizedPnl: null,
-            commission: null,
-            commissionAsset: null,
-            lastExecutionType: null,
-            lastTradeTime: null,
-            rejectReason: null,
-            createdAt: startedAt,
-            updatedAt: startedAt,
-            lastEventSource: "paper_engine"
-          };
-          this.emitAuditEvent(
-            dummyOrder,
-            "LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED",
-            "Lifecycle is OPEN/MANAGING but exchange positionAmt is zero.",
-            {
+          this.emitRecoveryAuditEvent({
+            eventType: "LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED",
+            fingerprint,
+            message: "Lifecycle is OPEN/MANAGING but exchange positionAmt is zero.",
+            payload: {
               recoveryRunId,
               fingerprint,
               reason: "Lifecycle is OPEN/MANAGING but exchange positionAmt is zero.",
@@ -4375,8 +4320,12 @@ export class BinanceOrderService {
               closureEvaluation,
               timestamp: startedAt
             },
-            startedAt
-          );
+            timestamp: startedAt,
+            symbol: lifecycle.symbol,
+            intentId: lifecycle.orderIntentId ?? null,
+            lifecycleId: lifecycle.id,
+            decisionContextId: lifecycle.decisionContextId ?? null
+          });
           markerCountsByType["LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED"] =
             (markerCountsByType["LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED"] || 0) + 1;
         }
@@ -4452,7 +4401,7 @@ export class BinanceOrderService {
             matchMethod: "clientOrderId",
             reason: "Exchange open order has no matching local order."
           });
-          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+          const existing = recoveryAuditRepository.findRecentRecoveryAuditEventByFingerprint(
             "LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER",
             fingerprint,
             dedupWindowMs
@@ -4463,43 +4412,11 @@ export class BinanceOrderService {
               (markerCountsByType["LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER"] || 0) + 1;
             continue;
           }
-          const dummyOrder: OrderStatePayload = {
-            orderId: exchangeOrder.orderId ? String(exchangeOrder.orderId) : "",
-            intentId: null,
-            symbol: exchangeOrder.symbol,
-            side: exchangeOrder.side as "BUY" | "SELL",
-            orderType: exchangeOrder.type as OrderType,
-            quantity: safeNumber(exchangeOrder.origQty),
-            price: safeNumber(exchangeOrder.price),
-            stopPrice: null,
-            stopLossPrice: null,
-            takeProfitPrice: null,
-            status: exchangeOrder.status as OrderLifecycleStatus,
-            clientOrderId: exchangeOrder.clientOrderId,
-            exchangeOrderId: exchangeOrder.orderId ? String(exchangeOrder.orderId) : null,
-            sourceWindowId: null,
-            parentOrderId: null,
-            protectiveKind: null,
-            dryRun: false,
-            reduceOnly: Boolean(exchangeOrder.reduceOnly),
-            executedQty: safeNumber(exchangeOrder.executedQty),
-            avgPrice: safeNumber(exchangeOrder.avgPrice),
-            lastFilledQty: null,
-            realizedPnl: null,
-            commission: null,
-            commissionAsset: null,
-            lastExecutionType: null,
-            lastTradeTime: null,
-            rejectReason: null,
-            createdAt: startedAt,
-            updatedAt: startedAt,
-            lastEventSource: "paper_engine"
-          };
-          this.emitAuditEvent(
-            dummyOrder,
-            "LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER",
-            "Exchange open order has no matching local order.",
-            {
+          this.emitRecoveryAuditEvent({
+            eventType: "LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER",
+            fingerprint,
+            message: "Exchange open order has no matching local order.",
+            payload: {
               recoveryRunId,
               fingerprint,
               reason: "Exchange open order has no matching local order.",
@@ -4513,8 +4430,11 @@ export class BinanceOrderService {
               matchMethod: "clientOrderId",
               timestamp: startedAt
             },
-            startedAt
-          );
+            timestamp: startedAt,
+            symbol: exchangeOrder.symbol,
+            clientOrderId: exchangeOrder.clientOrderId,
+            exchangeOrderId: exchangeOrder.orderId ? String(exchangeOrder.orderId) : null
+          });
           markerCountsByType["LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER"] =
             (markerCountsByType["LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER"] || 0) + 1;
         }
@@ -4543,7 +4463,7 @@ export class BinanceOrderService {
             matchMethod: "symbol",
             reason: "Exchange position exists but no lifecycle can be safely matched."
           });
-          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+          const existing = recoveryAuditRepository.findRecentRecoveryAuditEventByFingerprint(
             "LIVE_RECOVERY_POSITION_NO_LIFECYCLE",
             fingerprint,
             dedupWindowMs
@@ -4554,43 +4474,11 @@ export class BinanceOrderService {
               (markerCountsByType["LIVE_RECOVERY_POSITION_NO_LIFECYCLE"] || 0) + 1;
             continue;
           }
-          const dummyOrder: OrderStatePayload = {
-            orderId: "",
-            intentId: null,
-            symbol: position.symbol,
-            side: "BUY",
-            orderType: "MARKET",
-            quantity: 0,
-            price: null,
-            stopPrice: null,
-            stopLossPrice: null,
-            takeProfitPrice: null,
-            status: "NEW",
-            clientOrderId: "",
-            exchangeOrderId: null,
-            sourceWindowId: null,
-            parentOrderId: null,
-            protectiveKind: null,
-            dryRun: false,
-            reduceOnly: false,
-            executedQty: 0,
-            avgPrice: null,
-            lastFilledQty: null,
-            realizedPnl: null,
-            commission: null,
-            commissionAsset: null,
-            lastExecutionType: null,
-            lastTradeTime: null,
-            rejectReason: null,
-            createdAt: startedAt,
-            updatedAt: startedAt,
-            lastEventSource: "paper_engine"
-          };
-          this.emitAuditEvent(
-            dummyOrder,
-            "LIVE_RECOVERY_POSITION_NO_LIFECYCLE",
-            "Exchange position exists but no lifecycle can be safely matched.",
-            {
+          this.emitRecoveryAuditEvent({
+            eventType: "LIVE_RECOVERY_POSITION_NO_LIFECYCLE",
+            fingerprint,
+            message: "Exchange position exists but no lifecycle can be safely matched.",
+            payload: {
               recoveryRunId,
               fingerprint,
               reason: "Exchange position exists but no lifecycle can be safely matched.",
@@ -4604,8 +4492,9 @@ export class BinanceOrderService {
               matchMethod: "symbol",
               timestamp: startedAt
             },
-            startedAt
-          );
+            timestamp: startedAt,
+            symbol: position.symbol
+          });
           markerCountsByType["LIVE_RECOVERY_POSITION_NO_LIFECYCLE"] =
             (markerCountsByType["LIVE_RECOVERY_POSITION_NO_LIFECYCLE"] || 0) + 1;
         }
@@ -4663,44 +4552,26 @@ export class BinanceOrderService {
     } catch (error) {
       const finishedAt = Date.now();
       const durationMs = finishedAt - startedAt;
-      const dummyOrder: OrderStatePayload = {
-        orderId: "",
-        intentId: null,
-        symbol: "",
-        side: "BUY",
-        orderType: "MARKET",
-        quantity: 0,
-        price: null,
-        stopPrice: null,
-        stopLossPrice: null,
-        takeProfitPrice: null,
-        status: "NEW",
-        clientOrderId: "",
+      const fingerprint = this.generateRecoveryFingerprint({
+        eventType: "LIVE_RECOVERY_ERROR",
+        symbol: null,
+        lifecycleId: null,
+        orderIntentId: null,
+        decisionContextId: null,
+        clientOrderId: null,
         exchangeOrderId: null,
-        sourceWindowId: null,
-        parentOrderId: null,
-        protectiveKind: null,
-        dryRun: false,
-        reduceOnly: false,
-        executedQty: 0,
-        avgPrice: null,
-        lastFilledQty: null,
-        realizedPnl: null,
-        commission: null,
-        commissionAsset: null,
-        lastExecutionType: null,
-        lastTradeTime: null,
-        rejectReason: null,
-        createdAt: startedAt,
-        updatedAt: startedAt,
-        lastEventSource: "paper_engine"
-      };
-      this.emitAuditEvent(
-        dummyOrder,
-        "LIVE_RECOVERY_ERROR",
-        "Live lifecycle recovery audit failed.",
-        {
+        matchMethod: null,
+        reason: `Live lifecycle recovery audit failed. ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      });
+      this.emitRecoveryAuditEvent({
+        eventType: "LIVE_RECOVERY_ERROR",
+        fingerprint,
+        message: "Live lifecycle recovery audit failed.",
+        payload: {
           recoveryRunId,
+          fingerprint,
           startedAt,
           finishedAt,
           durationMs,
@@ -4723,8 +4594,8 @@ export class BinanceOrderService {
           matchMethod: null,
           timestamp: startedAt
         },
-        startedAt
-      );
+        timestamp: startedAt
+      });
     }
   }
 
@@ -5506,6 +5377,38 @@ export class BinanceOrderService {
     timestamp: number
   ): void {
     this.execution.audit.emitAuditEvent({ order, eventType, message, payload, timestamp });
+  }
+
+  private emitRecoveryAuditEvent(input: {
+    eventType: string;
+    fingerprint: string;
+    message: string;
+    payload: unknown;
+    timestamp: number;
+    symbol?: string | null;
+    orderId?: string | null;
+    intentId?: string | null;
+    lifecycleId?: string | null;
+    decisionContextId?: string | null;
+    reviewId?: string | null;
+    clientOrderId?: string | null;
+    exchangeOrderId?: string | null;
+  }): void {
+    recoveryAuditRepository.appendRecoveryAuditEvent({
+      eventType: input.eventType,
+      fingerprint: input.fingerprint,
+      timestamp: input.timestamp,
+      symbol: input.symbol ?? null,
+      orderId: input.orderId ?? null,
+      intentId: input.intentId ?? null,
+      lifecycleId: input.lifecycleId ?? null,
+      decisionContextId: input.decisionContextId ?? null,
+      reviewId: input.reviewId ?? null,
+      clientOrderId: input.clientOrderId ?? null,
+      exchangeOrderId: input.exchangeOrderId ?? null,
+      message: input.message,
+      payload: input.payload
+    });
   }
 
   private emitOrderStatus(order: OrderStatePayload): void {

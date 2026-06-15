@@ -123,7 +123,12 @@ const fundingColumns = [
 
 const marketFlowColumns = [
   "symbol",
+  "openInterest.value",
   "openInterest.currentOI",
+  "openInterest.updatedAt",
+  "openInterest.status",
+  "openInterest.errorReason",
+  "openInterest.ageMs",
   "openInterest.oiChange5m",
   "openInterest.oiChange15m",
   "openInterest.oiChange1h",

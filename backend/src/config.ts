@@ -52,6 +52,12 @@ export interface AppConfig {
   frameIntervalMs: number;
   focusRebalanceIntervalMs: number;
   openInterestPollIntervalMs: number;
+  openInterestPollTimeoutMs: number;
+  openInterestStaleAfterMs: number;
+  openInterestPollMaxConcurrency: number;
+  openInterestPollBackoffBaseMs: number;
+  openInterestPollBackoffMaxMs: number;
+  openInterestPollLogThrottleMs: number;
   apiKey: string | undefined;
   apiSecret: string | undefined;
   binanceFuturesTestnet: boolean;
@@ -221,6 +227,21 @@ export const config: AppConfig = {
   frameIntervalMs: toNumber(process.env.FRAME_INTERVAL_MS, 1000),
   focusRebalanceIntervalMs: toNumber(process.env.FOCUS_REBALANCE_INTERVAL_MS, 15000),
   openInterestPollIntervalMs: toNumber(process.env.OPEN_INTEREST_POLL_INTERVAL_MS, 30000),
+  openInterestPollTimeoutMs: toNumber(process.env.OPEN_INTEREST_POLL_TIMEOUT_MS, 4_000),
+  openInterestStaleAfterMs: toNumber(process.env.OPEN_INTEREST_STALE_AFTER_MS, 90_000),
+  openInterestPollMaxConcurrency: toNumber(process.env.OPEN_INTEREST_POLL_MAX_CONCURRENCY, 4),
+  openInterestPollBackoffBaseMs: toNumber(
+    process.env.OPEN_INTEREST_POLL_BACKOFF_BASE_MS,
+    30_000
+  ),
+  openInterestPollBackoffMaxMs: toNumber(
+    process.env.OPEN_INTEREST_POLL_BACKOFF_MAX_MS,
+    300_000
+  ),
+  openInterestPollLogThrottleMs: toNumber(
+    process.env.OPEN_INTEREST_POLL_LOG_THROTTLE_MS,
+    60_000
+  ),
   apiKey: process.env.BINANCE_API_KEY,
   apiSecret: process.env.BINANCE_API_SECRET,
   binanceFuturesTestnet: toBoolean(process.env.BINANCE_FUTURES_TESTNET, false),

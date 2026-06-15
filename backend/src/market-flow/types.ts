@@ -1,7 +1,13 @@
 export type CvdDivergence = "bullish" | "bearish" | "none";
+export type OpenInterestStatus = "FRESH" | "STALE" | "UNAVAILABLE";
 
 export interface OpenInterestState {
-  currentOI: number;
+  value: number | null;
+  currentOI: number | null;
+  updatedAt: number | null;
+  status: OpenInterestStatus;
+  errorReason: string | null;
+  ageMs: number | null;
   oiChange5m: number;
   oiChange15m: number;
   oiChange1h: number;

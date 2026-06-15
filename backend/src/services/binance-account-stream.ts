@@ -17,6 +17,7 @@ import {
   keepaliveUserDataStream,
   startUserDataStream
 } from "./binance-rest";
+import { ensureBinanceTimeSyncStarted } from "./binance-time-sync";
 import type { StreamHealth } from "./binance-stream";
 
 export interface AccountStreamHealth extends StreamHealth {
@@ -301,6 +302,8 @@ export class BinanceAccountStreamManager {
       this.updateStatus("account stream disabled: connect Binance API keys");
       return [];
     }
+
+    ensureBinanceTimeSyncStarted(this.restBase);
 
     this.lastError = null;
     this.updateStatus(

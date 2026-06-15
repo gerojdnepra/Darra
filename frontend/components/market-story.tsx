@@ -1,4 +1,5 @@
 import { compactUsd, formatPercent } from "@/lib/format";
+import { formatOpenInterestFreshness, isFreshOpenInterest } from "@/lib/open-interest";
 import type {
   FundingSymbolState,
   LiquidationState,
@@ -80,7 +81,11 @@ function buildMarketStory({
 
   if (flow) {
     sentences.push(
-      `Flow context shows CVD slope ${flow.cvd.slope.toFixed(2)} and OI 5m ${formatPercent(flow.openInterest.oiChange5m)}.`
+      `Flow context shows CVD slope ${flow.cvd.slope.toFixed(2)} and ${
+        isFreshOpenInterest(flow)
+          ? `OI 5m ${formatPercent(flow.openInterest.oiChange5m)}`
+          : formatOpenInterestFreshness(flow)
+      }.`
     );
   } else if (row.buyRatio60s > 0) {
     sentences.push(`Flow context is partial: buy ratio is ${row.buyRatio60s.toFixed(2)}.`);

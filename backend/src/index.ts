@@ -47,6 +47,7 @@ import { evaluateLiveReadiness } from "./safety/live-readiness";
 import { getExchangeFilterMap } from "./services/binance-exchange-filters";
 import { BinanceAccountStreamManager } from "./services/binance-account-stream";
 import { BinanceOrderService } from "./services/binance-order-service";
+import { OpenInterestPoller } from "./services/open-interest-poller";
 import { BinanceStreamManager } from "./services/binance-stream";
 import { bootstrapUniverse, fetchOpenInterest } from "./services/binance-rest";
 import { summarizeBinanceEnvironmentDiagnostics } from "./safety/binance-environment";
@@ -134,7 +135,9 @@ const engine = new ScreenerEngine();
 const fundingEngine = new FundingEngine();
 const liquidationEngine = new LiquidationEngine();
 const liquidationAggregator = new LiquidationAggregator(liquidationEngine);
-const marketFlowEngine = new MarketFlowEngine();
+const marketFlowEngine = new MarketFlowEngine({
+  openInterestStaleAfterMs: config.openInterestStaleAfterMs
+});
 const portfolioAnalyticsEngine = new PortfolioAnalyticsEngine();
 const unifiedRegimeEngine = new UnifiedRegimeEngine();
 const regimeLearningEngine = new RegimeLearningEngine();
@@ -244,6 +247,24 @@ const heavySectionCacheByClient = new WeakMap<ClientContext, Map<string, Section
 
 let phase: "booting" | "live" | "degraded" = "booting";
 let phaseMessage = "bootstrapping market universe";
+
+const openInterestPoller = new OpenInterestPoller({
+  restBase: config.binanceRestBase,
+  timeoutMs: config.openInterestPollTimeoutMs,
+  maxConcurrency: config.openInterestPollMaxConcurrency,
+  backoffBaseMs: config.openInterestPollBackoffBaseMs,
+  backoffMaxMs: config.openInterestPollBackoffMaxMs,
+  logThrottleMs: config.openInterestPollLogThrottleMs,
+  fetchSnapshot: fetchOpenInterest,
+  onSnapshot: (symbol, openInterestContracts, timestamp) => {
+    engine.applyOpenInterest(symbol, openInterestContracts, timestamp);
+    marketFlowEngine.applyOpenInterest(symbol, openInterestContracts, timestamp);
+  },
+  onFailure: (symbol, reason, timestamp) => {
+    marketFlowEngine.markOpenInterestFailure(symbol, reason, timestamp);
+  },
+  getState: (symbol, now) => marketFlowEngine.buildOpenInterestState(symbol, now)
+});
 
 engine.onAlert((alert) => {
   marketEventStore.recordSignal(alert);
@@ -1948,21 +1969,8 @@ const pollOpenInterestSnapshot = (): void => {
     return;
   }
 
-  openInterestPollPromise = Promise.all(
-    symbols.map(async (symbol) => {
-      try {
-        const snapshot = await fetchOpenInterest(config.binanceRestBase, symbol);
-        engine.applyOpenInterest(symbol, Number(snapshot.openInterest), snapshot.time || Date.now());
-        marketFlowEngine.applyOpenInterest(
-          symbol,
-          Number(snapshot.openInterest),
-          snapshot.time || Date.now()
-        );
-      } catch (error) {
-        console.warn(`Open interest poll failed for ${symbol}`, error);
-      }
-    })
-  )
+  openInterestPollPromise = openInterestPoller
+    .poll(symbols)
     .then(() => {
       broadcastFrame();
     })

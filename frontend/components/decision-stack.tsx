@@ -6,6 +6,7 @@ import type {
   PositionRiskOrchestratorState,
   ScreenerRow
 } from "@/lib/types";
+import { formatOpenInterestFreshness, isFreshOpenInterest } from "@/lib/open-interest";
 import { LearningModeHelp } from "./learning-mode-help";
 import { PanelHeader } from "./ui/panel-header";
 import { StatusBadge } from "./ui/status-badge";
@@ -115,7 +116,7 @@ function buildDecisionSteps({
   const flowPass =
     !!flow &&
     (Math.abs(flow.cvd.slope) > 0 ||
-      Math.abs(flow.openInterest.oiChange5m) > 0 ||
+      (isFreshOpenInterest(flow) && Math.abs(flow.openInterest.oiChange5m) > 0) ||
       row.buyRatio60s !== 0.5 ||
       row.liquidation5m > 0);
 
@@ -154,7 +155,11 @@ function buildDecisionSteps({
       label: "Flow Confirm",
       status: !hasFlow ? "WAITING" : flowPass ? "OK" : "CHECK",
       detail: flow
-        ? `CVD slope ${flow.cvd.slope.toFixed(2)}, OI 5m ${flow.openInterest.oiChange5m.toFixed(2)}, buy ratio ${row.buyRatio60s.toFixed(2)}`
+        ? `CVD slope ${flow.cvd.slope.toFixed(2)}, ${
+            isFreshOpenInterest(flow)
+              ? `OI 5m ${flow.openInterest.oiChange5m.toFixed(2)}`
+              : formatOpenInterestFreshness(flow)
+          }, buy ratio ${row.buyRatio60s.toFixed(2)}`
         : `Using row context: buy ratio ${row.buyRatio60s.toFixed(2)}, liquidations ${row.liquidation5m.toFixed(0)}`
     },
     {

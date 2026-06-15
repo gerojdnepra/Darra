@@ -1,6 +1,7 @@
 "use client";
 
 import { compactUsd, formatPercent } from "@/lib/format";
+import { formatOpenInterestFreshness, isFreshOpenInterest } from "@/lib/open-interest";
 import type {
   FundingSymbolState,
   LiquidationState,
@@ -219,14 +220,21 @@ function buildRailBlocks({
     !!liquidations;
   const flowSignals = [
     flow ? `CVD slope ${valueOrDash(flow.cvd.slope, 2)} with ${flow.cvd.divergence} divergence` : null,
-    flow ? `OI 5m ${percentOrDash(flow.openInterest.oiChange5m, 2)}` : null,
+    flow
+      ? isFreshOpenInterest(flow)
+        ? `OI 5m ${percentOrDash(flow.openInterest.oiChange5m, 2)}`
+        : formatOpenInterestFreshness(flow)
+      : null,
     `Buy ratio ${valueOrDash(row.buyRatio60s, 2)}`,
     `Liquidation bias ${row.liquidationBias}`,
     liquidations ? `5m liquidations ${compactUsd(liquidations.liquidations5m)}` : null
   ];
   const flowConfirmed =
     hasFlow &&
-    ((flow ? Math.abs(flow.cvd.slope) > 0 || Math.abs(flow.openInterest.oiChange5m) > 0 : false) ||
+    ((flow
+      ? Math.abs(flow.cvd.slope) > 0 ||
+        (isFreshOpenInterest(flow) && Math.abs(flow.openInterest.oiChange5m) > 0)
+      : false) ||
       row.volumeImpulse >= 1.5 ||
       row.liquidation5m > 0);
   const recentAlerts = alerts

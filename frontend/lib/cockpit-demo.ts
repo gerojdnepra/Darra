@@ -111,7 +111,12 @@ export const cockpitDemoRow: ScreenerRow = {
 export const cockpitDemoFlow: MarketFlowState = {
   symbol: cockpitDemoSymbol,
   openInterest: {
+    value: 2_890_000_000,
     currentOI: 2_890_000_000,
+    updatedAt: Date.now(),
+    status: "FRESH",
+    errorReason: null,
+    ageMs: 0,
     oiChange5m: 18_400_000,
     oiChange15m: 41_000_000,
     oiChange1h: 62_000_000
