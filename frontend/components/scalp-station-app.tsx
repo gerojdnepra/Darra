@@ -16504,7 +16504,7 @@ function ChainHealthPill({ label, present }: { label: string; present: boolean }
 type ReviewCoachTone = "good" | "improve" | "repeat";
 
 interface ReviewCoachSection {
-  title: "GOOD" | "IMPROVE" | "REPEAT";
+  title: string;
   tone: ReviewCoachTone;
   items: string[];
 }
@@ -16816,6 +16816,118 @@ function AnalyticsHighlightCard({
   );
 }
 
+function TraderScoreCard({
+  learning
+}: {
+  learning: TraderLearningCard;
+}) {
+  return (
+    <section className="rounded-lg border border-accent/25 bg-accent/5 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-accent">Trader Score</div>
+          <div className="mt-1 text-xs text-slate-500">
+            A simple progress score built from review quality, replay coverage, documentation, and saved outcomes.
+          </div>
+        </div>
+        <span
+          className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${
+            learning.enoughHistory && learning.score !== null
+              ? getDecisionVisual(learning.score >= 75 ? "GOOD" : learning.score >= 55 ? "WAIT" : "CHECK").badgeClass
+              : "border-white/10 bg-white/5 text-slate-300"
+          }`}
+        >
+          {learning.enoughHistory && learning.score !== null ? "Live Score" : "History Building"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[180px_minmax(0,1fr)]">
+        <div className="rounded-lg border border-white/10 bg-black/20 px-4 py-5 text-center">
+          <div className="text-4xl font-semibold text-slate-100">
+            {learning.score !== null ? learning.score : "--"}
+          </div>
+          <div className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">out of 100</div>
+          <div className="mt-3 text-xs text-slate-400">
+            {learning.enoughHistory
+              ? "Higher scores mean your saved process is easier to trust and repeat."
+              : "Trader Score is still learning from your trades."}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {learning.components.map((component) => {
+            const componentScore = component.score !== null ? clampLearningScore(component.score) : null;
+            const width = componentScore !== null ? `${componentScore}%` : "8%";
+
+            return (
+              <div key={component.label} className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="text-slate-300">{component.label}</span>
+                  <span className="text-slate-500">
+                    {componentScore !== null ? `${componentScore}/100` : "pending"}
+                  </span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-white/5">
+                  <div
+                    className={`h-2 rounded-full ${
+                      componentScore !== null
+                        ? componentScore >= 75
+                          ? "bg-positive"
+                          : componentScore >= 55
+                            ? "bg-caution"
+                            : "bg-negative"
+                        : "bg-slate-600"
+                    }`}
+                    style={{ width }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PersonalPlaybookCard({
+  playbook
+}: {
+  playbook: PersonalPlaybookSummary;
+}) {
+  return (
+    <section className={`rounded-lg border p-3 ${meaningFirstCardClasses(playbook.tone)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Personal Playbook</div>
+          <div className="mt-1 text-sm font-medium text-slate-100">{playbook.title}</div>
+          <div className="mt-1 text-xs text-slate-500">{playbook.subtitle}</div>
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${meaningFirstPillClasses(playbook.tone)}`}>
+          {playbook.badge}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {playbook.stats.map((stat) => (
+          <ReviewFact key={`${playbook.title}:${stat.label}`} label={stat.label} value={stat.value} />
+        ))}
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {playbook.items.map((item) => (
+          <div
+            key={`${playbook.title}:${item}`}
+            className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200"
+          >
+            {item}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 const humanizeJournalBucketKey = (
   value: string,
   kind: "setup" | "verdict" | "symbol" | "side"
@@ -17079,10 +17191,286 @@ const buildReviewAnalyticsHighlights = (analytics: JournalAnalyticsPayload | nul
   ] satisfies Array<Parameters<typeof AnalyticsHighlightCard>[0]>;
 };
 
+type TraderLearningCard = {
+  score: number | null;
+  enoughHistory: boolean;
+  components: Array<{
+    label: string;
+    score: number | null;
+    weight: number;
+  }>;
+  strengths: string[];
+  weaknesses: string[];
+  focus: string[];
+};
+
+type PersonalPlaybookSummary = {
+  tone: MeaningFirstTone;
+  title: string;
+  subtitle: string;
+  badge: string;
+  stats: Array<{ label: string; value: string }>;
+  items: string[];
+};
+
+const clampLearningScore = (value: number): number => Math.max(0, Math.min(100, Math.round(value)));
+
+const calculateDocumentationRate = (entries: JournalEntryRecord[]): number | null => {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const documentedCount = entries.filter(
+    (entry) => (entry.notes?.trim().length ?? 0) > 0 || entry.tags.length > 0
+  ).length;
+
+  return (documentedCount / entries.length) * 100;
+};
+
+const calculateWeightedLearningScore = (
+  components: Array<{ score: number | null; weight: number }>
+): number | null => {
+  const availableComponents = components.filter(
+    (component) => typeof component.score === "number" && Number.isFinite(component.score)
+  );
+
+  if (availableComponents.length === 0) {
+    return null;
+  }
+
+  const weightTotal = availableComponents.reduce((total, component) => total + component.weight, 0);
+
+  if (weightTotal <= 0) {
+    return null;
+  }
+
+  const weightedTotal = availableComponents.reduce(
+    (total, component) => total + (component.score ?? 0) * component.weight,
+    0
+  );
+
+  return clampLearningScore(weightedTotal / weightTotal);
+};
+
+const buildTraderLearningCard = (
+  snapshot: KnowledgeLayerSnapshot | null,
+  analytics: JournalAnalyticsPayload | null,
+  entries: JournalEntryRecord[]
+): TraderLearningCard => {
+  const totalTrades = analytics?.summary.total_trades ?? entries.length;
+  const totalReviews = snapshot?.chainHealth.totalReviews ?? 0;
+  const enoughHistory = totalTrades >= 4 || totalReviews >= 4;
+  const documentationRate = calculateDocumentationRate(entries);
+  const strongestSide = pickJournalBucket(
+    (analytics?.bySide ?? []).filter((row) => row.total_trades >= 2),
+    (row) => row.avg_pnl * 1000 + row.win_rate_pct
+  );
+  const weakestSideCandidates = (analytics?.bySide ?? []).filter((row) => row.total_trades >= 2);
+  const weakestSide =
+    weakestSideCandidates.length > 0
+      ? weakestSideCandidates.reduce((worst, current) =>
+          current.avg_pnl < worst.avg_pnl ? current : worst
+        )
+      : null;
+  const bestSetup = pickJournalBucket(
+    (analytics?.bySetupType ?? []).filter((row) => row.total_trades >= 2),
+    (row) => row.avg_pnl * 1000 + row.win_rate_pct
+  );
+
+  const components = [
+    {
+      label: "Review Completeness",
+      score: snapshot?.reviewCompleteness.averageScore ?? null,
+      weight: 0.28
+    },
+    {
+      label: "Replay Coverage",
+      score: snapshot?.replayCoverage.coveragePct ?? null,
+      weight: 0.22
+    },
+    {
+      label: "Chain Health",
+      score: snapshot?.chainHealth.completenessPct ?? null,
+      weight: 0.2
+    },
+    {
+      label: "Trade Documentation",
+      score: documentationRate,
+      weight: 0.15
+    },
+    {
+      label: "Recorded Results",
+      score: analytics?.summary.win_rate_pct ?? null,
+      weight: 0.15
+    }
+  ] satisfies TraderLearningCard["components"];
+
+  const strengths: string[] = [];
+  const weaknesses: string[] = [];
+
+  if ((snapshot?.reviewCompleteness.averageScore ?? 0) >= 70) {
+    strengths.push("Completed reviews are usually detailed enough to learn from later.");
+  }
+
+  if ((snapshot?.replayCoverage.coveragePct ?? 0) >= 70) {
+    strengths.push("Most completed reviews include full replay context.");
+  }
+
+  if ((snapshot?.chainHealth.completenessPct ?? 0) >= 75) {
+    strengths.push("Trade stories usually stay connected from signal to review.");
+  }
+
+  if ((documentationRate ?? 0) >= 65) {
+    strengths.push("Most trades include notes or tags for later review.");
+  }
+
+  if (bestSetup && bestSetup.avg_pnl > 0 && bestSetup.total_trades >= 3) {
+    strengths.push(
+      `${humanizeJournalBucketKey(bestSetup.key, "setup")} is your clearest positive setup pattern right now.`
+    );
+  }
+
+  if (strongestSide && strongestSide.avg_pnl > 0 && strongestSide.total_trades >= 3) {
+    strengths.push(
+      `${humanizeJournalBucketKey(strongestSide.key, "side")} trades are the stronger side in saved history.`
+    );
+  }
+
+  if (snapshot && snapshot.reviewCompleteness.averageScore < 60) {
+    weaknesses.push("Many reviews are too thin to turn into useful lessons.");
+  }
+
+  if (snapshot && snapshot.replayCoverage.coveragePct < 60) {
+    weaknesses.push("Replay coverage is still limited, so fewer trades can be studied step by step.");
+  }
+
+  if (snapshot && snapshot.chainHealth.completenessPct < 60) {
+    weaknesses.push("Too many trade stories break before the full review chain is saved.");
+  }
+
+  if (documentationRate !== null && documentationRate < 50) {
+    weaknesses.push("Too many trades are missing notes or tags for later review.");
+  }
+
+  if (weakestSide && weakestSide.avg_pnl < 0 && weakestSide.total_trades >= 3) {
+    weaknesses.push(
+      `${humanizeJournalBucketKey(weakestSide.key, "side")} trades are the weakest side in saved results.`
+    );
+  }
+
+  if ((analytics?.summary.win_rate_pct ?? 50) < 45 && totalTrades >= 4) {
+    weaknesses.push("Recent trade follow-through is weak enough to justify tighter selectivity.");
+  }
+
+  const focus =
+    snapshot && snapshot.reviewCompleteness.averageScore < 60
+      ? ["Finish reviews while the trade is still fresh."]
+      : documentationRate !== null && documentationRate < 50
+        ? ["Add one note or tag to every closed trade."]
+        : snapshot && snapshot.replayCoverage.coveragePct < 60
+          ? ["Use Replay more often on losing or confusing trades."]
+          : weakestSide && weakestSide.avg_pnl < 0 && weakestSide.total_trades >= 3
+            ? [`Size down ${humanizeJournalBucketKey(weakestSide.key, "side").toLowerCase()} trades until the pattern improves.`]
+            : bestSetup && bestSetup.total_trades >= 3
+              ? [`Keep waiting for ${humanizeJournalBucketKey(bestSetup.key, "setup")} conditions instead of forcing marginal trades.`]
+              : ["Keep reviewing completed trades and repeat your strongest patterns."];
+
+  if (!enoughHistory) {
+    return {
+      score: null,
+      enoughHistory: false,
+      components,
+      strengths:
+        strengths.length > 0
+          ? strengths.slice(0, 3)
+          : ["A few completed reviews are already giving the system something to learn from."],
+      weaknesses:
+        weaknesses.length > 0
+          ? weaknesses.slice(0, 3)
+          : ["More completed trades are needed before a stable weakness stands out."],
+      focus: ["Keep closing and reviewing trades so Trader Score can stabilize."]
+    };
+  }
+
+  const score = calculateWeightedLearningScore(components);
+
+  return {
+    score,
+    enoughHistory: true,
+    components,
+    strengths:
+      strengths.length > 0
+        ? strengths.slice(0, 3)
+        : ["Saved trade history is starting to show repeatable behavior."],
+    weaknesses:
+      weaknesses.length > 0
+        ? weaknesses.slice(0, 3)
+        : ["No major learning weakness stands out from the saved history right now."],
+    focus
+  };
+};
+
+const buildPersonalPlaybookSummary = (
+  analytics: JournalAnalyticsPayload | null
+): PersonalPlaybookSummary => {
+  const bestSetup = pickJournalBucket(
+    (analytics?.bySetupType ?? []).filter((row) => row.total_trades >= 3),
+    (row) => row.avg_pnl * 1000 + row.win_rate_pct
+  );
+  const strongestSide = pickJournalBucket(
+    (analytics?.bySide ?? []).filter((row) => row.total_trades >= 2),
+    (row) => row.avg_pnl * 1000 + row.win_rate_pct
+  );
+
+  if (!bestSetup) {
+    return {
+      tone: "neutral",
+      title: "Not enough completed trades yet",
+      subtitle: "The playbook will appear once saved trade history is deep enough to trust.",
+      badge: "History Building",
+      stats: [
+        { label: "Trades", value: String(analytics?.summary.total_trades ?? 0) },
+        { label: "Win Rate", value: formatStatsPercent(analytics?.summary.win_rate_pct) },
+        { label: "Average PnL", value: formatJournalPnlMetric(analytics?.summary.avg_pnl) }
+      ],
+      items: [
+        "Close and review more trades before turning one pattern into a personal rule."
+      ]
+    };
+  }
+
+  return {
+    tone: bestSetup.avg_pnl > 0 ? "positive" : "neutral",
+    title: humanizeJournalBucketKey(bestSetup.key, "setup"),
+    subtitle: "This is the best recorded setup pattern in your saved journal history.",
+    badge: "Best Setup",
+    stats: [
+      { label: "Trades", value: String(bestSetup.total_trades) },
+      { label: "Win Rate", value: formatStatsPercent(bestSetup.win_rate_pct) },
+      { label: "Average PnL", value: formatJournalPnlMetric(bestSetup.avg_pnl) },
+      {
+        label: "Best Side",
+        value: strongestSide ? humanizeJournalBucketKey(strongestSide.key, "side") : "--"
+      }
+    ],
+    items: [
+      `${humanizeJournalBucketKey(bestSetup.key, "setup")} is the clearest repeatable pattern in saved results.`,
+      strongestSide
+        ? `${humanizeJournalBucketKey(strongestSide.key, "side")} trades remain the stronger side overall.`
+        : "Side preference is still building from saved history."
+    ]
+  };
+};
+
 const buildTradingLessonSummary = (
   snapshot: KnowledgeLayerSnapshot | null,
-  analytics: JournalAnalyticsPayload | null
+  analytics: JournalAnalyticsPayload | null,
+  entries: JournalEntryRecord[]
 ) => {
+  const documentationRate = calculateDocumentationRate(entries);
+  const totalTrades = analytics?.summary.total_trades ?? entries.length;
+  const enoughHistory = totalTrades >= 4 || (snapshot?.chainHealth.totalReviews ?? 0) >= 4;
+
   if (hasJournalAnalytics(analytics)) {
     const bestSetup = pickJournalBucket(
       analytics?.bySetupType ?? [],
@@ -17106,25 +17494,33 @@ const buildTradingLessonSummary = (
       bestSide
         ? `${humanizeJournalBucketKey(bestSide.key, "side")} trades are the stronger side in saved reviews.`
         : null,
+      documentationRate !== null && documentationRate >= 65
+        ? "Most closed trades already include notes or tags for later review."
+        : null,
       snapshot && snapshot.chainHealth.completenessPct >= 75
         ? "Saved trade chains are complete enough to turn good reviews into repeatable lessons."
         : null
     ].filter((item): item is string => Boolean(item));
 
     return {
-      eyebrow: "Lesson",
+      eyebrow: "Learning Snapshot",
       title: "You perform best when",
       description: "These points come from saved review history and chain coverage already in the app.",
       badge: bestSetup ? `Average Result: ${formatJournalPnlMetric(bestSetup.avg_pnl)}` : "History Building",
       badgeClass: bestSetup ? getDecisionVisual(bestSetup.avg_pnl > 0 ? "GOOD" : "WAIT").badgeClass : undefined,
       tone: bestSetup && bestSetup.avg_pnl > 0 ? "positive" : "neutral",
-      items: items.length > 0 ? items.slice(0, 4) : ["More reviewed trades are needed before a clear lesson stands out."]
+      items:
+        items.length > 0
+          ? items.slice(0, 4)
+          : enoughHistory
+            ? ["Saved trade history exists, but a strong lesson has not separated itself yet."]
+            : ["Recorded learning is still building."]
     } satisfies Parameters<typeof MeaningFirstSummaryCard>[0];
   }
 
   if (snapshot) {
     return {
-      eyebrow: "Lesson",
+      eyebrow: "Learning Snapshot",
       title: "Recorded learning is still building",
       description: "Until more reviews are saved, use the coverage signals below to see how much the system can teach.",
       badge: `Replay Coverage: ${formatReviewCompleteness(snapshot.replayCoverage.coveragePct)}`,
@@ -17147,7 +17543,7 @@ const buildTradingLessonSummary = (
   }
 
   return {
-    eyebrow: "Lesson",
+    eyebrow: "Learning Snapshot",
     title: "No saved lessons yet",
     description: "Close and review a few paper trades to turn this workspace into a trader-first lesson board.",
     badge: "Awaiting Reviews",
@@ -17433,8 +17829,26 @@ function KnowledgeWorkspacePanel({
   onLoad: () => boolean;
 }) {
   const missingLinkEntries = snapshot ? Object.entries(snapshot.chainHealth.missingLinkCounts) : [];
-  const journalAnalytics = useScreenerStore((state) => state.journalAnalytics);
-  const lessonSummary = buildTradingLessonSummary(snapshot, journalAnalytics);
+  const { journalAnalytics, journalEntries } = useScreenerStore(
+    useShallow((state) => ({
+      journalAnalytics: state.journalAnalytics,
+      journalEntries: state.journalEntries
+    }))
+  );
+  const learningCard = useMemo(
+    () => buildTraderLearningCard(snapshot, journalAnalytics, journalEntries),
+    [journalAnalytics, journalEntries, snapshot]
+  );
+  const playbookSummary = useMemo(
+    () => buildPersonalPlaybookSummary(journalAnalytics),
+    [journalAnalytics]
+  );
+  const lessonSummary = useMemo(
+    () => buildTradingLessonSummary(snapshot, journalAnalytics, journalEntries),
+    [journalAnalytics, journalEntries, snapshot]
+  );
+  const hasLearningContent =
+    Boolean(snapshot) || hasJournalAnalytics(journalAnalytics) || journalEntries.length > 0;
 
   return (
     <div className="mt-4 space-y-4">
@@ -17480,7 +17894,7 @@ function KnowledgeWorkspacePanel({
         </div>
       ) : null}
 
-      {!snapshot && !loading && !error ? (
+      {!hasLearningContent && !loading && !error ? (
         <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
           <div className="text-sm font-medium text-slate-300">No trading-lessons snapshot yet.</div>
           <div className="mt-1 text-xs text-slate-500">
@@ -17489,80 +17903,114 @@ function KnowledgeWorkspacePanel({
         </div>
       ) : null}
 
-      {snapshot ? (
+      {hasLearningContent ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-            <span>
-              Snapshot {updatedAt ? formatClock(updatedAt) : formatClock(snapshot.generatedAt)}
-            </span>
-            <span>
-              Scope {snapshot.scope.symbol ?? "all symbols"} / limit {snapshot.scope.limit}
-            </span>
+          {snapshot ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <span>
+                Snapshot {updatedAt ? formatClock(updatedAt) : formatClock(snapshot.generatedAt)}
+              </span>
+              <span>
+                Scope {snapshot.scope.symbol ?? "all symbols"} / limit {snapshot.scope.limit}
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <span>Using saved journal history already in this workspace.</span>
+              <span>{journalEntries.length} reviewed trade{journalEntries.length === 1 ? "" : "s"}</span>
+            </div>
+          )}
+
+          <TraderScoreCard learning={learningCard} />
+
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Strengths & Weaknesses
+            </div>
+            <PlainMeaning>
+              Rule-based observations pulled from saved reviews, replay coverage, and journal history.
+            </PlainMeaning>
+            <div className="mt-2 grid gap-3 xl:grid-cols-3">
+              <ReviewCoachSectionCard
+                section={{ title: "STRENGTHS", tone: "good", items: learningCard.strengths }}
+              />
+              <ReviewCoachSectionCard
+                section={{ title: "WEAKNESSES", tone: "improve", items: learningCard.weaknesses }}
+              />
+              <ReviewCoachSectionCard
+                section={{ title: "FOCUS THIS WEEK", tone: "repeat", items: learningCard.focus }}
+              />
+            </div>
           </div>
+
+          <PersonalPlaybookCard playbook={playbookSummary} />
 
           <MeaningFirstSummaryCard {...lessonSummary} />
 
-          <section className="space-y-3 rounded-lg border border-accent/25 bg-accent/5 p-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-accent">Saved Snapshot</div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Coverage and chain details behind the lesson summary above.
-                </div>
-              </div>
-              <span className="rounded-full border border-accent/25 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-accent">
-                system memory
-              </span>
-            </div>
-            <div className="grid gap-3 xl:grid-cols-2">
-              <div className="rounded-lg border border-positive/25 bg-positive/5 p-3">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-positive">
-                  Known
-                </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <ReviewFact label="Complete Chains" value={snapshot.chainHealth.completeChains} />
-                  <ReviewFact label="Linked Decisions" value={snapshot.decisionCoverage.withDecisionContext} />
-                  <ReviewFact label="Linked Signals" value={snapshot.signalLinkage.withUnifiedSignal} />
-                  <ReviewFact label="Available Reviews" value={snapshot.chainHealth.totalReviews} />
-                  <ReviewFact label="Available Replays" value={snapshot.replayCoverage.replayable} />
-                </div>
-              </div>
-              <div className="rounded-lg border border-caution/25 bg-caution/5 p-3">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-caution">
-                  Unknown
-                </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <ReviewFact label="Incomplete Chains" value={snapshot.chainHealth.partialChains} />
-                  <ReviewFact label="Missing Signals" value={snapshot.signalLinkage.withoutUnifiedSignal} />
-                  <ReviewFact label="Missing Decisions" value={snapshot.decisionCoverage.withoutDecisionContext} />
-                  <ReviewFact label="Missing Reviews" value={snapshot.chainHealth.missingLinkCounts["review"]} />
-                </div>
-                <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                    Missing Links
+          {snapshot ? (
+            <section className="space-y-3 rounded-lg border border-accent/25 bg-accent/5 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-accent">Saved Snapshot</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Coverage and chain details behind the lesson summary above.
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {missingLinkEntries.length > 0 ? (
-                      missingLinkEntries.map(([name, count]) => (
-                        <span
-                          key={`knowledge-home-${name}`}
-                          className="rounded border border-caution/30 bg-caution/10 px-2 py-0.5 font-mono text-[11px] text-caution"
-                        >
-                          {name}: {count}
+                </div>
+                <span className="rounded-full border border-accent/25 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-accent">
+                  system memory
+                </span>
+              </div>
+              <div className="grid gap-3 xl:grid-cols-2">
+                <div className="rounded-lg border border-positive/25 bg-positive/5 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-positive">
+                    Known
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <ReviewFact label="Complete Chains" value={snapshot.chainHealth.completeChains} />
+                    <ReviewFact label="Linked Decisions" value={snapshot.decisionCoverage.withDecisionContext} />
+                    <ReviewFact label="Linked Signals" value={snapshot.signalLinkage.withUnifiedSignal} />
+                    <ReviewFact label="Available Reviews" value={snapshot.chainHealth.totalReviews} />
+                    <ReviewFact label="Available Replays" value={snapshot.replayCoverage.replayable} />
+                  </div>
+                </div>
+                <div className="rounded-lg border border-caution/25 bg-caution/5 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-caution">
+                    Unknown
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <ReviewFact label="Incomplete Chains" value={snapshot.chainHealth.partialChains} />
+                    <ReviewFact label="Missing Signals" value={snapshot.signalLinkage.withoutUnifiedSignal} />
+                    <ReviewFact label="Missing Decisions" value={snapshot.decisionCoverage.withoutDecisionContext} />
+                    <ReviewFact label="Missing Reviews" value={snapshot.chainHealth.missingLinkCounts["review"]} />
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                      Missing Links
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {missingLinkEntries.length > 0 ? (
+                        missingLinkEntries.map(([name, count]) => (
+                          <span
+                            key={`knowledge-home-${name}`}
+                            className="rounded border border-caution/30 bg-caution/10 px-2 py-0.5 font-mono text-[11px] text-caution"
+                          >
+                            {name}: {count}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="rounded border border-positive/30 bg-positive/10 px-2 py-0.5 text-[11px] text-positive">
+                          none
                         </span>
-                      ))
-                    ) : (
-                      <span className="rounded border border-positive/30 bg-positive/10 px-2 py-0.5 text-[11px] text-positive">
-                        none
-                      </span>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          {snapshot ? (
+            <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
             <div>
               <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                 Chain Trust
@@ -17589,9 +18037,11 @@ function KnowledgeWorkspacePanel({
                 value={formatReviewCompleteness(snapshot.replayCoverage.coveragePct)}
               />
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          {snapshot ? (
+            <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
               Chain Health
             </div>
@@ -17625,9 +18075,11 @@ function KnowledgeWorkspacePanel({
                 )}
               </div>
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          {snapshot ? (
+            <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
               Decision Coverage
             </div>
@@ -17645,9 +18097,11 @@ function KnowledgeWorkspacePanel({
                 value={formatReviewCompleteness(snapshot.decisionCoverage.coveragePct)}
               />
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          {snapshot ? (
+            <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
               Signal Linkage
             </div>
@@ -17662,9 +18116,11 @@ function KnowledgeWorkspacePanel({
                 value={formatReviewCompleteness(snapshot.signalLinkage.coveragePct)}
               />
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          {snapshot ? (
+            <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
               Replay Coverage
             </div>
@@ -17676,9 +18132,11 @@ function KnowledgeWorkspacePanel({
                 value={formatReviewCompleteness(snapshot.replayCoverage.coveragePct)}
               />
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          {snapshot ? (
+            <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
               Review Completeness
             </div>
@@ -17692,9 +18150,11 @@ function KnowledgeWorkspacePanel({
                 value={Object.keys(snapshot.reviewCompleteness.scoreByReviewId).length}
               />
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          {snapshot ? (
+            <section className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
               Playbook Readiness
             </div>
@@ -17716,7 +18176,8 @@ function KnowledgeWorkspacePanel({
                 value={formatReviewCompleteness(snapshot.playbookReadiness.violationReadinessPct)}
               />
             </div>
-          </section>
+            </section>
+          ) : null}
         </div>
       ) : null}
     </div>
