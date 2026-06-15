@@ -71,6 +71,215 @@ const lookupModeLabels: Record<DecisionReplayLookupMode, string> = {
   positionLifecycleId: "positionLifecycleId"
 };
 
+type ReplaySummaryTone = "positive" | "caution" | "neutral";
+
+const formatSignedReplayPercent = (value: number | null | undefined): string => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+};
+
+const replaySummaryToneClasses = (tone: ReplaySummaryTone): string => {
+  if (tone === "positive") {
+    return "border-positive/30 bg-positive/10 text-positive";
+  }
+
+  if (tone === "caution") {
+    return "border-caution/30 bg-caution/10 text-caution";
+  }
+
+  return "border-white/10 bg-black/20 text-slate-300";
+};
+
+function ReplayMeaningSummary({
+  title,
+  subtitle,
+  badge,
+  badgeClass,
+  items
+}: {
+  title: string;
+  subtitle: string;
+  badge?: string | null;
+  badgeClass?: string;
+  items: Array<{ tone: ReplaySummaryTone; text: string }>;
+}) {
+  return (
+    <div className="rounded-lg border border-accent/25 bg-accent/5 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-accent">What Happened?</div>
+          <div className="mt-1 text-sm font-medium text-slate-100">{title}</div>
+          <div className="mt-1 text-xs text-slate-400">{subtitle}</div>
+        </div>
+        {badge ? (
+          <span
+            className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${
+              badgeClass ?? "border-white/10 bg-white/5 text-slate-300"
+            }`}
+          >
+            {badge}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 space-y-2">
+        {items.map((item) => (
+          <div
+            key={`${title}:${item.text}`}
+            className={`rounded-md border px-3 py-2 text-sm ${replaySummaryToneClasses(item.tone)}`}
+          >
+            {item.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const buildSignalReplaySummary = (replayData: SignalReplayPayload) => {
+  const { signal, outcomes } = replayData;
+  const bestFavorable = outcomes.reduce<number | null>(
+    (currentBest, outcome) =>
+      typeof outcome.maxFavorablePct === "number" &&
+      Number.isFinite(outcome.maxFavorablePct) &&
+      (currentBest === null || outcome.maxFavorablePct > currentBest)
+        ? outcome.maxFavorablePct
+        : currentBest,
+    null
+  );
+  const worstAdverse = outcomes.reduce<number | null>(
+    (currentWorst, outcome) =>
+      typeof outcome.maxAdversePct === "number" &&
+      Number.isFinite(outcome.maxAdversePct) &&
+      (currentWorst === null || outcome.maxAdversePct > currentWorst)
+        ? outcome.maxAdversePct
+        : currentWorst,
+    null
+  );
+  const conviction =
+    signal.opportunityConfidence ?? signal.setupConfidence ?? signal.opportunityScore ?? signal.score;
+  const summaryItems: Array<{ tone: ReplaySummaryTone; text: string }> = [];
+
+  summaryItems.push({
+    tone:
+      signal.setupDirection === "LONG"
+        ? "positive"
+        : signal.setupDirection === "SHORT"
+          ? "caution"
+          : "neutral",
+    text: signal.setupDirection
+      ? `${signal.symbol} was recorded as a ${signal.setupDirection} setup.`
+      : `${signal.symbol} was recorded as a ${signal.type} signal.`
+  });
+
+  if (typeof conviction === "number" && Number.isFinite(conviction)) {
+    summaryItems.push({
+      tone: conviction >= 70 ? "positive" : conviction >= 40 ? "neutral" : "caution",
+      text: `Recorded conviction was ${Math.round(conviction)}/100 at signal time.`
+    });
+  }
+
+  if (bestFavorable !== null) {
+    summaryItems.push({
+      tone: bestFavorable > 0 ? "positive" : "neutral",
+      text: `Best follow-through reached ${formatSignedReplayPercent(bestFavorable)} during the replay window.`
+    });
+  }
+
+  if (worstAdverse !== null) {
+    summaryItems.push({
+      tone: worstAdverse >= 1 ? "caution" : "neutral",
+      text: `Largest pullback reached -${Math.abs(worstAdverse).toFixed(2)}% before the window ended.`
+    });
+  }
+
+  if (summaryItems.length < 4) {
+    summaryItems.push({
+      tone: "neutral",
+      text:
+        replayData.timeline.length > 1
+          ? `${replayData.timeline.length - 1} outcome checkpoints were saved for later review.`
+          : "Outcome checkpoints are still limited for this replay."
+    });
+  }
+
+  return {
+    title: signal.setupType ? `${signal.setupType} replay summary` : `${signal.symbol} replay summary`,
+    subtitle: "Quick read first. Raw replay details stay below.",
+    badge: signal.opportunityVerdict ?? signal.setupDirection ?? signal.type,
+    badgeClass:
+      signal.setupDirection === "LONG"
+        ? "border-positive/30 bg-positive/10 text-positive"
+        : signal.setupDirection === "SHORT"
+          ? "border-negative/30 bg-negative/10 text-negative"
+          : "border-white/10 bg-white/5 text-slate-300",
+    items: summaryItems.slice(0, 4)
+  };
+};
+
+const buildDecisionReplaySummary = (replayData: DecisionReplayPayload) => {
+  const decision = replayData.chain.tradeDecisionContext?.decision ?? null;
+  const lifecycleStatus = replayData.chain.positionLifecycle?.status ?? null;
+  const orderCount = replayData.chain.orders.length;
+  const lifecycleEventCount = replayData.chain.positionLifecycleEvents.length;
+  const missingLinks = replayData.summary.missingLinks;
+  const items: Array<{ tone: ReplaySummaryTone; text: string }> = [];
+
+  if (decision) {
+    items.push({
+      tone: decision === "ENTER" ? "positive" : decision === "WAIT" ? "caution" : "neutral",
+      text:
+        decision === "ENTER"
+          ? "The recorded plan was to enter the trade."
+          : decision === "WAIT"
+            ? "The recorded plan was to wait for cleaner confirmation."
+            : "The recorded plan was to skip the trade."
+    });
+  }
+
+  if (lifecycleStatus) {
+    items.push({
+      tone: lifecycleStatus === "CLOSED" ? "positive" : lifecycleStatus === "ERROR" ? "caution" : "neutral",
+      text: `The trade lifecycle reached ${lifecycleStatus.toLowerCase()}.`
+    });
+  }
+
+  items.push({
+    tone: orderCount > 0 || lifecycleEventCount > 0 ? "neutral" : "caution",
+    text: `${orderCount} order record${orderCount === 1 ? "" : "s"} and ${lifecycleEventCount} lifecycle event${lifecycleEventCount === 1 ? "" : "s"} were captured.`
+  });
+
+  items.push({
+    tone: replayData.summary.reviewPresent ? "positive" : "caution",
+    text: replayData.summary.reviewPresent
+      ? "A saved review is attached to this trade chain."
+      : "A saved review is still missing from this trade chain."
+  });
+
+  if (missingLinks.length > 0) {
+    items.push({
+      tone: "caution",
+      text: `Replay is still missing ${missingLinks.join(", ")}.`
+    });
+  }
+
+  return {
+    title:
+      lifecycleStatus === "CLOSED"
+        ? "Trade chain replay is complete enough to review."
+        : "Trade chain replay shows the recorded execution path.",
+    subtitle: "Start with the story, then inspect the event trail underneath.",
+    badge: missingLinks.length > 0 ? "Needs Follow-up" : "Chain Connected",
+    badgeClass:
+      missingLinks.length > 0
+        ? "border-caution/30 bg-caution/10 text-caution"
+        : "border-positive/30 bg-positive/10 text-positive",
+    items: items.slice(0, 5)
+  };
+};
+
 function SignalReplayContent({
   signalId,
   replayData,
@@ -164,6 +373,7 @@ function SignalReplayContent({
   } = replayData;
   const hasTimelineData =
     timeline && timeline.length > 0 && timeline.some((entry) => entry.outcome !== null);
+  const summary = buildSignalReplaySummary(replayData);
 
   return (
     <div>
@@ -176,6 +386,8 @@ function SignalReplayContent({
       <LearningModeHelp moduleId="replay" learningMode={learningMode} />
 
       <div className="mt-3 space-y-3">
+        <ReplayMeaningSummary {...summary} />
+
         <div className="rounded-lg border border-white/10 bg-black/20 p-3">
           <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-slate-500">
             Signal Metadata
@@ -328,6 +540,7 @@ function DecisionReplaySection({
 
   const missingLinks = replayData?.summary.missingLinks ?? [];
   const timeline = replayData?.timeline ?? [];
+  const replaySummary = replayData ? buildDecisionReplaySummary(replayData) : null;
 
   const requestReplay = () => {
     if (!normalizedLookupValue) {
@@ -438,6 +651,8 @@ function DecisionReplaySection({
 
       {replayData ? (
         <div className="mt-3 space-y-3">
+          {replaySummary ? <ReplayMeaningSummary {...replaySummary} /> : null}
+
           <div className="flex flex-wrap gap-2">
             {summaryItems.map((item) => (
               <span

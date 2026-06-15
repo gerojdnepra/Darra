@@ -9277,6 +9277,15 @@ export function ScalpStationApp({
 
       {!collapsedSections.fundingBasis ? (
         <div className="mt-3 space-y-3">
+          <MeaningFirstSummaryCard
+            {...buildFundingSummaryCard({
+              averageFundingRate: riskFrame?.funding.averageFundingRate,
+              averageBasisPct: riskFrame?.funding.averageBasisPct,
+              annualizedPressureScore: riskFrame?.funding.annualizedPressureScore,
+              extremeCount: riskFrame?.funding.extremeSymbols.length ?? 0
+            })}
+          />
+
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <OverviewCard
               title="Avg Funding"
@@ -9410,6 +9419,18 @@ export function ScalpStationApp({
 
       {!collapsedSections.marketFlow ? (
         <div className="mt-3 space-y-3">
+          <MeaningFirstSummaryCard
+            {...buildMarketFlowSummaryCard({
+              directionalBias: riskFrame?.flow.directionalBias,
+              aggregatePressureScore: riskFrame?.flow.aggregatePressureScore,
+              totalOpenInterestDelta5mUsd: riskFrame?.flow.totalOpenInterestDelta5mUsd,
+              totalCvd5mUsd: riskFrame?.flow.totalCvd5mUsd,
+              totalLiquidationNet5mUsd: riskFrame?.flow.totalLiquidationNet5mUsd,
+              staleCount: marketFlowRows.filter((row) => row.openInterest.status === "STALE").length,
+              unavailableCount: marketFlowRows.filter((row) => row.openInterest.status === "UNAVAILABLE").length
+            })}
+          />
+
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <OverviewCard
               title="Pressure Score"
@@ -16695,6 +16716,449 @@ function ReviewCoachSectionCard({
   );
 }
 
+type MeaningFirstTone = "positive" | "caution" | "neutral";
+
+const meaningFirstCardClasses = (tone: MeaningFirstTone): string => {
+  if (tone === "positive") {
+    return "border-positive/25 bg-positive/5";
+  }
+
+  if (tone === "caution") {
+    return "border-caution/25 bg-caution/5";
+  }
+
+  return "border-white/10 bg-black/20";
+};
+
+const meaningFirstPillClasses = (tone: MeaningFirstTone): string => {
+  if (tone === "positive") {
+    return "border-positive/30 bg-positive/10 text-positive";
+  }
+
+  if (tone === "caution") {
+    return "border-caution/30 bg-caution/10 text-caution";
+  }
+
+  return "border-white/10 bg-white/5 text-slate-300";
+};
+
+function MeaningFirstSummaryCard({
+  eyebrow,
+  title,
+  description,
+  badge,
+  badgeClass,
+  tone = "neutral",
+  items
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  badge?: string | null;
+  badgeClass?: string;
+  tone?: MeaningFirstTone;
+  items: string[];
+}) {
+  return (
+    <section className={`rounded-lg border p-3 ${meaningFirstCardClasses(tone)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{eyebrow}</div>
+          <div className="mt-1 text-sm font-medium text-slate-100">{title}</div>
+          <div className="mt-1 text-xs text-slate-500">{description}</div>
+        </div>
+        {badge ? (
+          <span
+            className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${
+              badgeClass ?? meaningFirstPillClasses(tone)
+            }`}
+          >
+            {badge}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 grid gap-2">
+        {items.map((item) => (
+          <div
+            key={`${eyebrow}:${item}`}
+            className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200"
+          >
+            {item}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AnalyticsHighlightCard({
+  title,
+  headline,
+  detail,
+  footer,
+  tone
+}: {
+  title: string;
+  headline: string;
+  detail: string;
+  footer: string;
+  tone: MeaningFirstTone;
+}) {
+  return (
+    <div className={`rounded-lg border p-3 ${meaningFirstCardClasses(tone)}`}>
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{title}</div>
+      <div className="mt-2 text-sm font-medium text-slate-100">{headline}</div>
+      <div className="mt-1 text-xs text-slate-500">{detail}</div>
+      <div className="mt-3 inline-flex rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-300">
+        {footer}
+      </div>
+    </div>
+  );
+}
+
+const humanizeJournalBucketKey = (
+  value: string,
+  kind: "setup" | "verdict" | "symbol" | "side"
+): string => {
+  if (!value) {
+    return "Unknown";
+  }
+
+  if (kind === "symbol") {
+    return formatPairLabel(value);
+  }
+
+  if (kind === "side") {
+    return value.toLowerCase() === "long" ? "Long" : value.toLowerCase() === "short" ? "Short" : value;
+  }
+
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const pickJournalBucket = (
+  rows: JournalAnalyticsBucket[],
+  score: (row: JournalAnalyticsBucket) => number
+): JournalAnalyticsBucket | null => {
+  const candidates = rows.filter((row) => row.total_trades > 0);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.reduce((best, row) => (score(row) > score(best) ? row : best));
+};
+
+const buildFundingSummaryCard = (params: {
+  averageFundingRate: number | null | undefined;
+  averageBasisPct: number | null | undefined;
+  annualizedPressureScore: number | null | undefined;
+  extremeCount: number;
+}) => {
+  const { averageFundingRate, averageBasisPct, annualizedPressureScore, extremeCount } = params;
+  const directionLabel =
+    typeof averageFundingRate === "number" && Math.abs(averageFundingRate) >= 0.00015
+      ? averageFundingRate > 0
+        ? "Longs Paying Shorts"
+        : "Shorts Paying Longs"
+      : "Funding Balanced";
+  const crowdingRisk =
+    typeof annualizedPressureScore === "number"
+      ? annualizedPressureScore >= 70
+        ? "HIGH"
+        : annualizedPressureScore >= 40
+          ? "MEDIUM"
+          : "LOW"
+      : null;
+  const items = [
+    explainFundingState({ rate: averageFundingRate }),
+    typeof averageBasisPct === "number"
+      ? averageBasisPct >= 0
+        ? "Futures are trading above index, which adds to long-side crowding."
+        : "Futures are trading below index, which points to softer long demand."
+      : "Basis context is still loading.",
+    extremeCount > 0
+      ? `${extremeCount} tracked symbol${extremeCount === 1 ? "" : "s"} already show extreme funding.`
+      : "No tracked symbols are at extreme funding right now."
+  ];
+
+  return {
+    eyebrow: "Funding Pressure",
+    title: directionLabel,
+    description: "Read the crowding message first, then inspect the raw rates below.",
+    badge: crowdingRisk ? `Crowding Risk: ${crowdingRisk}` : "Crowding Risk Pending",
+    badgeClass: crowdingRisk ? getRiskVisual(crowdingRisk).badgeClass : undefined,
+    tone:
+      directionLabel === "Funding Balanced"
+        ? "neutral"
+        : crowdingRisk === "HIGH"
+          ? "caution"
+          : "positive",
+    items
+  } satisfies Parameters<typeof MeaningFirstSummaryCard>[0];
+};
+
+const buildMarketFlowSummaryCard = (params: {
+  directionalBias: "LONG" | "SHORT" | "NEUTRAL" | null | undefined;
+  aggregatePressureScore: number | null | undefined;
+  totalOpenInterestDelta5mUsd: number | null | undefined;
+  totalCvd5mUsd: number | null | undefined;
+  totalLiquidationNet5mUsd: number | null | undefined;
+  staleCount: number;
+  unavailableCount: number;
+}) => {
+  const {
+    directionalBias,
+    aggregatePressureScore,
+    totalOpenInterestDelta5mUsd,
+    totalCvd5mUsd,
+    totalLiquidationNet5mUsd,
+    staleCount,
+    unavailableCount
+  } = params;
+  const title =
+    directionalBias === "LONG"
+      ? "Buyers Strong"
+      : directionalBias === "SHORT"
+        ? "Sellers Strong"
+        : "Balanced Pressure";
+  const confidence =
+    typeof aggregatePressureScore === "number"
+      ? aggregatePressureScore >= 70
+        ? "HIGH"
+        : aggregatePressureScore >= 40
+          ? "MEDIUM"
+          : "LOW"
+      : "LOW";
+  const orderFlowConfirming =
+    directionalBias === "LONG"
+      ? (totalCvd5mUsd ?? 0) > 0
+      : directionalBias === "SHORT"
+        ? (totalCvd5mUsd ?? 0) < 0
+        : Math.abs(totalCvd5mUsd ?? 0) < 1;
+  const items = [
+    typeof totalOpenInterestDelta5mUsd === "number"
+      ? totalOpenInterestDelta5mUsd > 0
+        ? "Open Interest Rising. More traders are entering this move."
+        : totalOpenInterestDelta5mUsd < 0
+          ? "Open Interest Falling. Positions are unwinding into this move."
+          : "Open Interest is mostly flat right now."
+      : "Open interest context is still loading.",
+    orderFlowConfirming
+      ? directionalBias === "NEUTRAL"
+        ? "Order Flow is balanced right now."
+        : "Order Flow Confirming Direction."
+      : "Order Flow is mixed, so conviction should stay measured.",
+    typeof totalLiquidationNet5mUsd === "number"
+      ? totalLiquidationNet5mUsd > 0
+        ? "Short liquidations are helping the upside move."
+        : totalLiquidationNet5mUsd < 0
+          ? "Long liquidations are helping the downside move."
+          : "Liquidation pressure is quiet right now."
+      : "Liquidation context is still loading."
+  ];
+
+  if (unavailableCount > 0 || staleCount > 0) {
+    items.push(
+      unavailableCount > 0
+        ? `${unavailableCount} symbol${unavailableCount === 1 ? "" : "s"} still have unavailable open-interest data.`
+        : `${staleCount} symbol${staleCount === 1 ? "" : "s"} have stale open-interest data.`
+    );
+  }
+
+  return {
+    eyebrow: "Market Pressure",
+    title,
+    description: "See the market message first, then drill into OI, CVD, and liquidation details.",
+    badge: `Confidence: ${confidence}`,
+    badgeClass:
+      confidence === "HIGH"
+        ? getDecisionVisual("READY").badgeClass
+        : confidence === "MEDIUM"
+          ? getDecisionVisual("WAIT").badgeClass
+          : getDecisionVisual("CHECK").badgeClass,
+    tone:
+      directionalBias === "NEUTRAL" ? "neutral" : confidence === "HIGH" ? "positive" : "caution",
+    items: items.slice(0, 4)
+  } satisfies Parameters<typeof MeaningFirstSummaryCard>[0];
+};
+
+const buildReviewAnalyticsHighlights = (analytics: JournalAnalyticsPayload | null) => {
+  if (!hasJournalAnalytics(analytics)) {
+    return [
+      {
+        title: "Best Setup",
+        headline: "No setup history yet",
+        detail: "Close a few reviewed trades to see your strongest setup here.",
+        footer: "awaiting history",
+        tone: "neutral"
+      },
+      {
+        title: "Worst Habit",
+        headline: "No weak pattern yet",
+        detail: "A weak habit will appear here once review history is deep enough.",
+        footer: "awaiting history",
+        tone: "neutral"
+      },
+      {
+        title: "Most Profitable Pattern",
+        headline: "No profit pattern yet",
+        detail: "This card will surface the pattern with the strongest total result.",
+        footer: "awaiting history",
+        tone: "neutral"
+      }
+    ] satisfies Array<Parameters<typeof AnalyticsHighlightCard>[0]>;
+  }
+
+  const bestSetup = pickJournalBucket(
+    analytics?.bySetupType ?? [],
+    (row) => row.avg_pnl * 1000 + row.win_rate_pct
+  );
+  const worstHabitCandidates = [
+    ...(analytics?.bySide ?? []).map((row) => ({ row, kind: "side" as const })),
+    ...(analytics?.byOpportunityVerdict ?? []).map((row) => ({ row, kind: "verdict" as const }))
+  ].filter((entry) => entry.row.total_trades > 0);
+  const worstHabit =
+    worstHabitCandidates.length > 0
+      ? worstHabitCandidates.reduce((worst, current) =>
+          current.row.avg_pnl < worst.row.avg_pnl ? current : worst
+        )
+      : null;
+  const mostProfitableCandidates = [
+    ...(analytics?.bySetupType ?? []).map((row) => ({ row, kind: "setup" as const })),
+    ...(analytics?.byOpportunityVerdict ?? []).map((row) => ({ row, kind: "verdict" as const }))
+  ].filter((entry) => entry.row.total_trades > 0);
+  const mostProfitable =
+    mostProfitableCandidates.length > 0
+      ? mostProfitableCandidates.reduce((best, current) =>
+          current.row.total_pnl > best.row.total_pnl ? current : best
+        )
+      : null;
+
+  return [
+    {
+      title: "Best Setup",
+      headline: bestSetup ? humanizeJournalBucketKey(bestSetup.key, "setup") : "No setup history yet",
+      detail: bestSetup
+        ? "This setup has the best recorded average result."
+        : "Close a few reviewed trades to see setup patterns here.",
+      footer: bestSetup
+        ? `${formatJournalPnlMetric(bestSetup.avg_pnl)} avg PnL | ${formatStatsPercent(bestSetup.win_rate_pct)} win rate`
+        : "awaiting history",
+      tone: bestSetup && bestSetup.avg_pnl > 0 ? "positive" : "neutral"
+    },
+    {
+      title: "Worst Habit",
+      headline: worstHabit
+        ? humanizeJournalBucketKey(worstHabit.row.key, worstHabit.kind)
+        : "No weak pattern found yet",
+      detail: worstHabit
+        ? worstHabit.kind === "side"
+          ? `${humanizeJournalBucketKey(worstHabit.row.key, "side")} trades have produced the weakest average result.`
+          : `${humanizeJournalBucketKey(worstHabit.row.key, "verdict")} trades have produced the weakest average result.`
+        : "More review history is needed before a weak habit stands out.",
+      footer: worstHabit
+        ? `${formatJournalPnlMetric(worstHabit.row.avg_pnl)} avg PnL | ${formatStatsPercent(worstHabit.row.win_rate_pct)} win rate`
+        : "awaiting history",
+      tone: "caution"
+    },
+    {
+      title: "Most Profitable Pattern",
+      headline: mostProfitable
+        ? humanizeJournalBucketKey(mostProfitable.row.key, mostProfitable.kind)
+        : "No profit pattern yet",
+      detail: mostProfitable
+        ? "This pattern has produced the largest total recorded PnL."
+        : "More completed reviews are needed to rank profit patterns.",
+      footer: mostProfitable
+        ? `${formatJournalPnlMetric(mostProfitable.row.total_pnl)} total PnL | ${mostProfitable.row.total_trades} trades`
+        : "awaiting history",
+      tone: mostProfitable && mostProfitable.row.total_pnl > 0 ? "positive" : "neutral"
+    }
+  ] satisfies Array<Parameters<typeof AnalyticsHighlightCard>[0]>;
+};
+
+const buildTradingLessonSummary = (
+  snapshot: KnowledgeLayerSnapshot | null,
+  analytics: JournalAnalyticsPayload | null
+) => {
+  if (hasJournalAnalytics(analytics)) {
+    const bestSetup = pickJournalBucket(
+      analytics?.bySetupType ?? [],
+      (row) => row.avg_pnl * 1000 + row.win_rate_pct
+    );
+    const bestVerdict = pickJournalBucket(
+      analytics?.byOpportunityVerdict ?? [],
+      (row) => row.avg_pnl * 1000 + row.win_rate_pct
+    );
+    const bestSide = pickJournalBucket(
+      analytics?.bySide ?? [],
+      (row) => row.avg_pnl * 1000 + row.win_rate_pct
+    );
+    const items = [
+      bestSetup
+        ? `You perform best when ${humanizeJournalBucketKey(bestSetup.key, "setup")} setups appear.`
+        : null,
+      bestVerdict
+        ? `${humanizeJournalBucketKey(bestVerdict.key, "verdict")} trades have the strongest recorded follow-through.`
+        : null,
+      bestSide
+        ? `${humanizeJournalBucketKey(bestSide.key, "side")} trades are the stronger side in saved reviews.`
+        : null,
+      snapshot && snapshot.chainHealth.completenessPct >= 75
+        ? "Saved trade chains are complete enough to turn good reviews into repeatable lessons."
+        : null
+    ].filter((item): item is string => Boolean(item));
+
+    return {
+      eyebrow: "Lesson",
+      title: "You perform best when",
+      description: "These points come from saved review history and chain coverage already in the app.",
+      badge: bestSetup ? `Average Result: ${formatJournalPnlMetric(bestSetup.avg_pnl)}` : "History Building",
+      badgeClass: bestSetup ? getDecisionVisual(bestSetup.avg_pnl > 0 ? "GOOD" : "WAIT").badgeClass : undefined,
+      tone: bestSetup && bestSetup.avg_pnl > 0 ? "positive" : "neutral",
+      items: items.length > 0 ? items.slice(0, 4) : ["More reviewed trades are needed before a clear lesson stands out."]
+    } satisfies Parameters<typeof MeaningFirstSummaryCard>[0];
+  }
+
+  if (snapshot) {
+    return {
+      eyebrow: "Lesson",
+      title: "Recorded learning is still building",
+      description: "Until more reviews are saved, use the coverage signals below to see how much the system can teach.",
+      badge: `Replay Coverage: ${formatReviewCompleteness(snapshot.replayCoverage.coveragePct)}`,
+      badgeClass: getFreshnessVisual(
+        snapshot.replayCoverage.coveragePct >= 75 ? "FRESH" : snapshot.replayCoverage.coveragePct >= 40 ? "STALE" : "UNAVAILABLE"
+      ).badgeClass,
+      tone: snapshot.chainHealth.completenessPct >= 75 ? "positive" : "caution",
+      items: [
+        snapshot.chainHealth.completeChains > 0
+          ? `${snapshot.chainHealth.completeChains} trade chain${snapshot.chainHealth.completeChains === 1 ? "" : "s"} are complete enough to study.`
+          : "No fully complete trade chains have been saved yet.",
+        snapshot.replayCoverage.replayable > 0
+          ? `${snapshot.replayCoverage.replayable} review${snapshot.replayCoverage.replayable === 1 ? "" : "s"} can already be replayed step by step.`
+          : "Replay examples are still limited.",
+        snapshot.playbookReadiness.reviewsWithPlaybookTags > 0
+          ? `${snapshot.playbookReadiness.reviewsWithPlaybookTags} review${snapshot.playbookReadiness.reviewsWithPlaybookTags === 1 ? "" : "s"} already have playbook tags for later pattern review.`
+          : "Tagging more reviews will make lessons easier to spot."
+      ]
+    } satisfies Parameters<typeof MeaningFirstSummaryCard>[0];
+  }
+
+  return {
+    eyebrow: "Lesson",
+    title: "No saved lessons yet",
+    description: "Close and review a few paper trades to turn this workspace into a trader-first lesson board.",
+    badge: "Awaiting Reviews",
+    tone: "neutral",
+    items: [
+      "The first useful lesson appears after completed trades are reviewed.",
+      "Replay and review coverage will fill in automatically as paper-trade history grows."
+    ]
+  } satisfies Parameters<typeof MeaningFirstSummaryCard>[0];
+};
+
 function DecisionReviewWorkspace({
   selectedEntry,
   decisionReplay,
@@ -16969,6 +17433,8 @@ function KnowledgeWorkspacePanel({
   onLoad: () => boolean;
 }) {
   const missingLinkEntries = snapshot ? Object.entries(snapshot.chainHealth.missingLinkCounts) : [];
+  const journalAnalytics = useScreenerStore((state) => state.journalAnalytics);
+  const lessonSummary = buildTradingLessonSummary(snapshot, journalAnalytics);
 
   return (
     <div className="mt-4 space-y-4">
@@ -17034,14 +17500,14 @@ function KnowledgeWorkspacePanel({
             </span>
           </div>
 
+          <MeaningFirstSummaryCard {...lessonSummary} />
+
           <section className="space-y-3 rounded-lg border border-accent/25 bg-accent/5 p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-accent">
-                  Trading Lessons
-                </div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-accent">Saved Snapshot</div>
                 <div className="mt-1 text-xs text-slate-500">
-                  What the system can already teach from the current snapshot.
+                  Coverage and chain details behind the lesson summary above.
                 </div>
               </div>
               <span className="rounded-full border border-accent/25 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-accent">
@@ -17416,6 +17882,12 @@ const TradeJournalPanel = memo(function TradeJournalPanel({
                   : "waiting for backend response"}
             </div>
           </div>
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-3">
+          {buildReviewAnalyticsHighlights(analytics).map((card) => (
+            <AnalyticsHighlightCard key={card.title} {...card} />
+          ))}
         </div>
 
         <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
