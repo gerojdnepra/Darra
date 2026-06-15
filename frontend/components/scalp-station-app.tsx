@@ -16903,9 +16903,14 @@ function PersonalPlaybookCard({
           <div className="mt-1 text-sm font-medium text-slate-100">{playbook.title}</div>
           <div className="mt-1 text-xs text-slate-500">{playbook.subtitle}</div>
         </div>
-        <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${meaningFirstPillClasses(playbook.tone)}`}>
-          {playbook.badge}
-        </span>
+        <div className="flex flex-wrap gap-2">
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${meaningFirstPillClasses(playbook.tone)}`}>
+            {playbook.badge}
+          </span>
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${playbookConfidenceBadgeClass(playbook.confidence)}`}>
+            Confidence: {playbook.confidence}
+          </span>
+        </div>
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -16925,6 +16930,164 @@ function PersonalPlaybookCard({
         ))}
       </div>
     </section>
+  );
+}
+
+function HabitTrackerCard({
+  habits
+}: {
+  habits: TraderLearningCard["habits"];
+}) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-black/20 p-3">
+      <div>
+        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Habit Tracker</div>
+        <div className="mt-1 text-xs text-slate-500">
+          Simple habit scores built from saved review and journal behavior.
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {habits.map((habit) => {
+          const habitScore = habit.score !== null ? clampLearningScore(habit.score) : null;
+
+          return (
+            <div key={habit.label} className="rounded-md border border-white/10 bg-black/20 px-3 py-3">
+              <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{habit.label}</div>
+              <div className="mt-2 text-2xl font-semibold text-slate-100">
+                {habitScore !== null ? `${habitScore}%` : "--"}
+              </div>
+              <div className="mt-2 h-2 rounded-full bg-white/5">
+                <div
+                  className={`h-2 rounded-full ${
+                    habitScore !== null
+                      ? habitScore >= 75
+                        ? "bg-positive"
+                        : habitScore >= 55
+                          ? "bg-caution"
+                          : "bg-negative"
+                      : "bg-slate-600"
+                  }`}
+                  style={{ width: habitScore !== null ? `${habitScore}%` : "8%" }}
+                />
+              </div>
+              <div className="mt-2 text-xs text-slate-500">{habit.detail}</div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+const playbookConfidenceBadgeClass = (confidence: PlaybookConfidenceLevel): string => {
+  if (confidence === "HIGH") {
+    return getDecisionVisual("GOOD").badgeClass;
+  }
+
+  if (confidence === "MEDIUM") {
+    return getDecisionVisual("WAIT").badgeClass;
+  }
+
+  if (confidence === "LOW") {
+    return getDecisionVisual("CHECK").badgeClass;
+  }
+
+  return "border-white/10 bg-white/5 text-slate-300";
+};
+
+function PlaybookPatternCard({
+  title,
+  pattern,
+  badgeLabel
+}: {
+  title: string;
+  pattern: EvaluatedPlaybookPattern;
+  badgeLabel?: string;
+}) {
+  return (
+    <section className={`rounded-lg border p-3 ${meaningFirstCardClasses(pattern.tone)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{title}</div>
+          <div className="mt-1 text-sm font-medium text-slate-100">{pattern.label}</div>
+          <div className="mt-1 text-xs text-slate-500">{pattern.evidenceSummary}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {badgeLabel ? (
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-300">
+              {badgeLabel}
+            </span>
+          ) : null}
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${playbookConfidenceBadgeClass(pattern.confidence)}`}>
+            Confidence: {pattern.confidence}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <ReviewFact label="Trades" value={String(pattern.totalTrades)} />
+        <ReviewFact label="Win Rate" value={formatStatsPercent(pattern.winRatePct)} />
+        <ReviewFact label="Average Result" value={formatJournalPnlMetric(pattern.avgPnl)} />
+        <ReviewFact label="Total Result" value={formatJournalPnlMetric(pattern.totalPnl)} />
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {pattern.evidence.map((item) => (
+          <div
+            key={`${title}:${pattern.label}:${item}`}
+            className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200"
+          >
+            {item}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function BestSupportedPatternsSection({
+  patterns,
+  warnings
+}: {
+  patterns: EvaluatedPlaybookPattern[];
+  warnings: string[];
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Best Supported Patterns</div>
+      <div className="grid gap-3 xl:grid-cols-2">
+        {patterns.length > 0 ? (
+          patterns.map((pattern, index) => (
+            <PlaybookPatternCard
+              key={`supported-${pattern.kind}-${pattern.key}`}
+              title={index === 0 ? "Best Supported Pattern" : "Supported Pattern"}
+              pattern={pattern}
+            />
+          ))
+        ) : (
+          <MeaningFirstSummaryCard
+            eyebrow="Best Supported Patterns"
+            title="Current evidence is still limited"
+            description="Positive patterns exist only when the saved sample is large enough and the review/replay evidence is solid."
+            badge="History Building"
+            tone="neutral"
+            items={["More completed trades are needed before trusting a pattern."]}
+          />
+        )}
+      </div>
+
+      {warnings.length > 0 ? (
+        <MeaningFirstSummaryCard
+          eyebrow="Warning"
+          title="Some profitable-looking patterns still have weak evidence"
+          description="These patterns may look positive, but the sample or saved coverage is too thin to trust yet."
+          badge="Weak Evidence"
+          tone="caution"
+          items={warnings}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -17201,7 +17364,34 @@ type TraderLearningCard = {
   }>;
   strengths: string[];
   weaknesses: string[];
-  focus: string[];
+  repeatMore: string[];
+  avoidMore: string[];
+  patterns: string[];
+  habits: Array<{
+    label: string;
+    score: number | null;
+    detail: string;
+  }>;
+  weeklyFocus: string;
+  bestSupportedPatterns: EvaluatedPlaybookPattern[];
+  weakEvidenceWarnings: string[];
+};
+
+type PlaybookConfidenceLevel = "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT DATA";
+type PlaybookPatternKind = "setup" | "side" | "verdict";
+
+type EvaluatedPlaybookPattern = {
+  kind: PlaybookPatternKind;
+  key: string;
+  label: string;
+  totalTrades: number;
+  winRatePct: number;
+  avgPnl: number;
+  totalPnl: number;
+  confidence: PlaybookConfidenceLevel;
+  evidence: string[];
+  evidenceSummary: string;
+  tone: MeaningFirstTone;
 };
 
 type PersonalPlaybookSummary = {
@@ -17211,9 +17401,21 @@ type PersonalPlaybookSummary = {
   badge: string;
   stats: Array<{ label: string; value: string }>;
   items: string[];
+  confidence: PlaybookConfidenceLevel;
+  evidence: string[];
 };
 
 const clampLearningScore = (value: number): number => Math.max(0, Math.min(100, Math.round(value)));
+
+const playbookConfidenceRank: Record<PlaybookConfidenceLevel, number> = {
+  "INSUFFICIENT DATA": 0,
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3
+};
+
+const isActionablePlaybookConfidence = (confidence: PlaybookConfidenceLevel): boolean =>
+  confidence === "HIGH" || confidence === "MEDIUM";
 
 const calculateDocumentationRate = (entries: JournalEntryRecord[]): number | null => {
   if (entries.length === 0) {
@@ -17252,6 +17454,109 @@ const calculateWeightedLearningScore = (
   return clampLearningScore(weightedTotal / weightTotal);
 };
 
+const buildPlaybookPatternLabel = (key: string, kind: PlaybookPatternKind): string => {
+  const base = humanizeJournalBucketKey(key, kind);
+
+  if (kind === "setup") {
+    return base;
+  }
+
+  if (kind === "side") {
+    return `${base} Trades`;
+  }
+
+  return `${base} Trades`;
+};
+
+const evaluatePlaybookConfidence = ({
+  totalTrades,
+  reviewCompleteness,
+  replayCoverage
+}: {
+  totalTrades: number;
+  reviewCompleteness: number | null | undefined;
+  replayCoverage: number | null | undefined;
+}): {
+  confidence: PlaybookConfidenceLevel;
+  evidence: string[];
+  evidenceSummary: string;
+} => {
+  const reviewScore = typeof reviewCompleteness === "number" ? reviewCompleteness : null;
+  const replayScore = typeof replayCoverage === "number" ? replayCoverage : null;
+  const evidence = [`${totalTrades} completed trade${totalTrades === 1 ? "" : "s"}`];
+
+  if (reviewScore !== null) {
+    evidence.push(`${formatReviewCompleteness(reviewScore)} review completeness`);
+  }
+
+  if (replayScore !== null) {
+    evidence.push(`${formatReviewCompleteness(replayScore)} replay coverage`);
+  }
+
+  if (totalTrades < 2) {
+    return {
+      confidence: "INSUFFICIENT DATA",
+      evidence,
+      evidenceSummary: "Current evidence is too limited to trust this pattern yet."
+    };
+  }
+
+  if (totalTrades >= 10 && (reviewScore ?? 0) >= 70 && (replayScore ?? 0) >= 70) {
+    return {
+      confidence: "HIGH",
+      evidence,
+      evidenceSummary: "Strong sample size with solid review and replay coverage."
+    };
+  }
+
+  if (totalTrades >= 5 && (reviewScore ?? 0) >= 60 && (replayScore ?? 0) >= 60) {
+    return {
+      confidence: "MEDIUM",
+      evidence,
+      evidenceSummary: "Useful evidence exists, but the sample is still moderate."
+    };
+  }
+
+  return {
+    confidence: "LOW",
+    evidence: [...evidence, totalTrades < 5 ? "Sample size is still small." : "Saved review or replay coverage is still thin."],
+    evidenceSummary: "This pattern may be real, but the evidence is not strong enough to trust yet."
+  };
+};
+
+const evaluatePlaybookPattern = (
+  row: JournalAnalyticsBucket,
+  kind: PlaybookPatternKind,
+  snapshot: KnowledgeLayerSnapshot | null
+): EvaluatedPlaybookPattern => {
+  const confidence = evaluatePlaybookConfidence({
+    totalTrades: row.total_trades,
+    reviewCompleteness: snapshot?.reviewCompleteness.averageScore ?? null,
+    replayCoverage: snapshot?.replayCoverage.coveragePct ?? null
+  });
+
+  return {
+    kind,
+    key: row.key,
+    label: buildPlaybookPatternLabel(row.key, kind),
+    totalTrades: row.total_trades,
+    winRatePct: row.win_rate_pct,
+    avgPnl: row.avg_pnl,
+    totalPnl: row.total_pnl,
+    confidence: confidence.confidence,
+    evidence: confidence.evidence,
+    evidenceSummary: confidence.evidenceSummary,
+    tone:
+      row.avg_pnl > 0
+        ? confidence.confidence === "HIGH"
+          ? "positive"
+          : confidence.confidence === "MEDIUM"
+            ? "neutral"
+            : "caution"
+        : "caution"
+  };
+};
+
 const buildTraderLearningCard = (
   snapshot: KnowledgeLayerSnapshot | null,
   analytics: JournalAnalyticsPayload | null,
@@ -17261,21 +17566,79 @@ const buildTraderLearningCard = (
   const totalReviews = snapshot?.chainHealth.totalReviews ?? 0;
   const enoughHistory = totalTrades >= 4 || totalReviews >= 4;
   const documentationRate = calculateDocumentationRate(entries);
-  const strongestSide = pickJournalBucket(
-    (analytics?.bySide ?? []).filter((row) => row.total_trades >= 2),
-    (row) => row.avg_pnl * 1000 + row.win_rate_pct
+  const setupPatterns = (analytics?.bySetupType ?? []).map((row) =>
+    evaluatePlaybookPattern(row, "setup", snapshot)
   );
-  const weakestSideCandidates = (analytics?.bySide ?? []).filter((row) => row.total_trades >= 2);
+  const sidePatterns = (analytics?.bySide ?? []).map((row) =>
+    evaluatePlaybookPattern(row, "side", snapshot)
+  );
+  const verdictPatterns = (analytics?.byOpportunityVerdict ?? []).map((row) =>
+    evaluatePlaybookPattern(row, "verdict", snapshot)
+  );
+  const actionableSetups = setupPatterns.filter(
+    (pattern) => isActionablePlaybookConfidence(pattern.confidence) && pattern.totalTrades >= 2
+  );
+  const actionableSides = sidePatterns.filter(
+    (pattern) => isActionablePlaybookConfidence(pattern.confidence) && pattern.totalTrades >= 2
+  );
+  const actionableVerdicts = verdictPatterns.filter(
+    (pattern) => isActionablePlaybookConfidence(pattern.confidence) && pattern.totalTrades >= 2
+  );
+  const bestSetup =
+    actionableSetups
+      .filter((pattern) => pattern.avgPnl > 0)
+      .sort(
+        (left, right) =>
+          playbookConfidenceRank[right.confidence] - playbookConfidenceRank[left.confidence] ||
+          right.avgPnl - left.avgPnl ||
+          right.totalTrades - left.totalTrades
+      )[0] ?? null;
+  const weakestSetup =
+    actionableSetups
+      .filter((pattern) => pattern.avgPnl < 0)
+      .sort((left, right) => left.avgPnl - right.avgPnl || right.totalTrades - left.totalTrades)[0] ?? null;
+  const strongestSide =
+    actionableSides
+      .filter((pattern) => pattern.avgPnl > 0)
+      .sort(
+        (left, right) =>
+          playbookConfidenceRank[right.confidence] - playbookConfidenceRank[left.confidence] ||
+          right.avgPnl - left.avgPnl ||
+          right.totalTrades - left.totalTrades
+      )[0] ?? null;
   const weakestSide =
-    weakestSideCandidates.length > 0
-      ? weakestSideCandidates.reduce((worst, current) =>
-          current.avg_pnl < worst.avg_pnl ? current : worst
-        )
-      : null;
-  const bestSetup = pickJournalBucket(
-    (analytics?.bySetupType ?? []).filter((row) => row.total_trades >= 2),
-    (row) => row.avg_pnl * 1000 + row.win_rate_pct
-  );
+    actionableSides
+      .filter((pattern) => pattern.avgPnl < 0)
+      .sort((left, right) => left.avgPnl - right.avgPnl || right.totalTrades - left.totalTrades)[0] ?? null;
+  const strongestVerdict =
+    actionableVerdicts
+      .filter((pattern) => pattern.avgPnl > 0)
+      .sort(
+        (left, right) =>
+          playbookConfidenceRank[right.confidence] - playbookConfidenceRank[left.confidence] ||
+          right.avgPnl - left.avgPnl ||
+          right.totalTrades - left.totalTrades
+      )[0] ?? null;
+  const weakestVerdict =
+    actionableVerdicts
+      .filter((pattern) => pattern.avgPnl < 0)
+      .sort((left, right) => left.avgPnl - right.avgPnl || right.totalTrades - left.totalTrades)[0] ?? null;
+  const bestSupportedPatterns = setupPatterns
+    .filter((pattern) => pattern.avgPnl > 0 && isActionablePlaybookConfidence(pattern.confidence))
+    .sort(
+      (left, right) =>
+        playbookConfidenceRank[right.confidence] - playbookConfidenceRank[left.confidence] ||
+        right.avgPnl - left.avgPnl ||
+        right.totalTrades - left.totalTrades
+    )
+    .slice(0, 2);
+  const weakEvidenceWarnings = setupPatterns
+    .filter((pattern) => pattern.avgPnl > 0 && !isActionablePlaybookConfidence(pattern.confidence))
+    .sort((left, right) => right.avgPnl - left.avgPnl || right.totalTrades - left.totalTrades)
+    .slice(0, 3)
+    .map((pattern) =>
+      `${pattern.label} looks profitable, but confidence is ${pattern.confidence}. ${pattern.evidenceSummary}`
+    );
 
   const components = [
     {
@@ -17307,6 +17670,36 @@ const buildTraderLearningCard = (
 
   const strengths: string[] = [];
   const weaknesses: string[] = [];
+  const repeatMore: string[] = [];
+  const avoidMore: string[] = [];
+  const patterns: string[] = [];
+  const habits = [
+    {
+      label: "Review Completion",
+      score: snapshot?.reviewCompleteness.averageScore ?? null,
+      detail: "How complete the average saved review is."
+    },
+    {
+      label: "Replay Coverage",
+      score: snapshot?.replayCoverage.coveragePct ?? null,
+      detail: "How often trades can be replayed step by step."
+    },
+    {
+      label: "Trade Documentation",
+      score: documentationRate,
+      detail: "How often trades include notes or tags."
+    },
+    {
+      label: "Playbook Usage",
+      score: snapshot?.playbookReadiness.tagReadinessPct ?? null,
+      detail: "How often trades are tagged for later pattern review."
+    },
+    {
+      label: "Chain Trust",
+      score: snapshot?.chainHealth.completenessPct ?? null,
+      detail: "How complete the signal-to-review chain stays."
+    }
+  ] satisfies TraderLearningCard["habits"];
 
   if ((snapshot?.reviewCompleteness.averageScore ?? 0) >= 70) {
     strengths.push("Completed reviews are usually detailed enough to learn from later.");
@@ -17324,16 +17717,40 @@ const buildTraderLearningCard = (
     strengths.push("Most trades include notes or tags for later review.");
   }
 
-  if (bestSetup && bestSetup.avg_pnl > 0 && bestSetup.total_trades >= 3) {
+  if (bestSetup) {
     strengths.push(
-      `${humanizeJournalBucketKey(bestSetup.key, "setup")} is your clearest positive setup pattern right now.`
+      `${bestSetup.label} is your clearest positive setup pattern right now.`
     );
   }
 
-  if (strongestSide && strongestSide.avg_pnl > 0 && strongestSide.total_trades >= 3) {
+  if (strongestSide) {
     strengths.push(
-      `${humanizeJournalBucketKey(strongestSide.key, "side")} trades are the stronger side in saved history.`
+      `${strongestSide.label} are the stronger side in saved history.`
     );
+  }
+
+  if (bestSetup) {
+    repeatMore.push(`Repeat ${bestSetup.label} more often.`);
+  }
+
+  if (strongestSide) {
+    repeatMore.push(
+      `Repeat ${strongestSide.label.toLowerCase()} while this edge stays positive.`
+    );
+  }
+
+  if (strongestVerdict) {
+    repeatMore.push(
+      `Repeat ${strongestVerdict.label.toLowerCase()} more often.`
+    );
+  }
+
+  if ((snapshot?.reviewCompleteness.averageScore ?? 0) >= 70) {
+    repeatMore.push("Keep fully reviewing trades; that habit is already strong.");
+  }
+
+  if ((snapshot?.replayCoverage.coveragePct ?? 0) >= 70) {
+    repeatMore.push("Keep complete replay coverage on closed trades.");
   }
 
   if (snapshot && snapshot.reviewCompleteness.averageScore < 60) {
@@ -17352,9 +17769,9 @@ const buildTraderLearningCard = (
     weaknesses.push("Too many trades are missing notes or tags for later review.");
   }
 
-  if (weakestSide && weakestSide.avg_pnl < 0 && weakestSide.total_trades >= 3) {
+  if (weakestSide) {
     weaknesses.push(
-      `${humanizeJournalBucketKey(weakestSide.key, "side")} trades are the weakest side in saved results.`
+      `${weakestSide.label} are the weakest side in saved results.`
     );
   }
 
@@ -17362,24 +17779,86 @@ const buildTraderLearningCard = (
     weaknesses.push("Recent trade follow-through is weak enough to justify tighter selectivity.");
   }
 
-  const focus =
+  if (weakestSide) {
+    avoidMore.push(
+      `Avoid forcing ${weakestSide.label.toLowerCase()} while results stay weak.`
+    );
+  }
+
+  if (weakestSetup) {
+    avoidMore.push(
+      `Avoid ${weakestSetup.label} until the pattern improves.`
+    );
+  }
+
+  if (weakestVerdict) {
+    avoidMore.push(
+      `Avoid ${weakestVerdict.label.toLowerCase()}; they are the weakest recorded pattern so far.`
+    );
+  }
+
+  if (snapshot && snapshot.reviewCompleteness.averageScore < 60) {
+    avoidMore.push("Avoid leaving trades half-reviewed after they close.");
+  }
+
+  if (snapshot && snapshot.replayCoverage.coveragePct < 60) {
+    avoidMore.push("Avoid losing replay context on trades you want to learn from.");
+  }
+
+  if (documentationRate !== null && documentationRate < 50) {
+    avoidMore.push("Avoid closing trades without a note or tag.");
+  }
+
+  if (bestSetup && weakestSetup && bestSetup.key !== weakestSetup.key) {
+    patterns.push(
+      `${bestSetup.label}: ${formatJournalPnlMetric(bestSetup.avgPnl)} average result.`
+    );
+    patterns.push(
+      `${weakestSetup.label}: ${formatJournalPnlMetric(weakestSetup.avgPnl)} average result.`
+    );
+  }
+
+  if (strongestSide && weakestSide && strongestSide.key !== weakestSide.key) {
+    patterns.push(
+      `${strongestSide.label}: ${formatJournalPnlMetric(strongestSide.avgPnl)} average result.`
+    );
+    patterns.push(
+      `${weakestSide.label}: ${formatJournalPnlMetric(weakestSide.avgPnl)} average result.`
+    );
+  }
+
+  if (strongestVerdict && weakestVerdict && strongestVerdict.key !== weakestVerdict.key) {
+    patterns.push(
+      `${strongestVerdict.label}: ${formatJournalPnlMetric(strongestVerdict.avgPnl)} average result.`
+    );
+    patterns.push(
+      `${weakestVerdict.label}: ${formatJournalPnlMetric(weakestVerdict.avgPnl)} average result.`
+    );
+  }
+
+  const weeklyFocus =
     snapshot && snapshot.reviewCompleteness.averageScore < 60
-      ? ["Finish reviews while the trade is still fresh."]
-      : documentationRate !== null && documentationRate < 50
-        ? ["Add one note or tag to every closed trade."]
-        : snapshot && snapshot.replayCoverage.coveragePct < 60
-          ? ["Use Replay more often on losing or confusing trades."]
-          : weakestSide && weakestSide.avg_pnl < 0 && weakestSide.total_trades >= 3
-            ? [`Size down ${humanizeJournalBucketKey(weakestSide.key, "side").toLowerCase()} trades until the pattern improves.`]
-            : bestSetup && bestSetup.total_trades >= 3
-              ? [`Keep waiting for ${humanizeJournalBucketKey(bestSetup.key, "setup")} conditions instead of forcing marginal trades.`]
-              : ["Keep reviewing completed trades and repeat your strongest patterns."];
+      ? "Complete reviews immediately after closing trades."
+      : snapshot && snapshot.replayCoverage.coveragePct < 60
+        ? "Improve replay coverage on every closed trade."
+        : documentationRate !== null && documentationRate < 50
+          ? "Add one note or tag to every closed trade."
+          : weakestVerdict
+            ? `Avoid ${weakestVerdict.label.toLowerCase()} until the pattern improves.`
+            : weakestSide
+              ? `Reduce ${weakestSide.label.toLowerCase()} until the edge improves.`
+              : bestSetup
+                ? `Repeat ${bestSetup.label} instead of forcing marginal trades.`
+                : weakEvidenceWarnings.length > 0
+                  ? "More completed trades are needed before choosing a pattern-specific focus."
+                  : "Keep reviewing completed trades and repeat your strongest patterns.";
 
   if (!enoughHistory) {
     return {
       score: null,
       enoughHistory: false,
       components,
+      habits,
       strengths:
         strengths.length > 0
           ? strengths.slice(0, 3)
@@ -17388,7 +17867,12 @@ const buildTraderLearningCard = (
         weaknesses.length > 0
           ? weaknesses.slice(0, 3)
           : ["More completed trades are needed before a stable weakness stands out."],
-      focus: ["Keep closing and reviewing trades so Trader Score can stabilize."]
+      repeatMore: ["Not enough completed trades yet."],
+      avoidMore: ["Not enough completed trades yet."],
+      patterns: ["More completed trades are needed."],
+      weeklyFocus: "Keep closing and reviewing trades so Trader Score can stabilize.",
+      bestSupportedPatterns: [],
+      weakEvidenceWarnings
     };
   }
 
@@ -17398,6 +17882,7 @@ const buildTraderLearningCard = (
     score,
     enoughHistory: true,
     components,
+    habits,
     strengths:
       strengths.length > 0
         ? strengths.slice(0, 3)
@@ -17406,21 +17891,44 @@ const buildTraderLearningCard = (
       weaknesses.length > 0
         ? weaknesses.slice(0, 3)
         : ["No major learning weakness stands out from the saved history right now."],
-    focus
+    repeatMore:
+      repeatMore.length > 0
+        ? repeatMore.slice(0, 4)
+        : weakEvidenceWarnings.length > 0
+          ? ["More completed trades are needed before trusting a repeat pattern."]
+          : ["Not enough completed trades yet."],
+    avoidMore:
+      avoidMore.length > 0
+        ? avoidMore.slice(0, 4)
+        : weakEvidenceWarnings.length > 0
+          ? ["More completed trades are needed before trusting an avoid pattern."]
+          : ["Not enough completed trades yet."],
+    patterns:
+      patterns.length > 0
+        ? patterns.slice(0, 4)
+        : weakEvidenceWarnings.length > 0
+          ? ["More completed trades are needed before trusting these comparisons."]
+          : ["More completed trades are needed."],
+    weeklyFocus,
+    bestSupportedPatterns,
+    weakEvidenceWarnings
   };
 };
 
 const buildPersonalPlaybookSummary = (
+  snapshot: KnowledgeLayerSnapshot | null,
   analytics: JournalAnalyticsPayload | null
 ): PersonalPlaybookSummary => {
-  const bestSetup = pickJournalBucket(
-    (analytics?.bySetupType ?? []).filter((row) => row.total_trades >= 3),
-    (row) => row.avg_pnl * 1000 + row.win_rate_pct
-  );
-  const strongestSide = pickJournalBucket(
-    (analytics?.bySide ?? []).filter((row) => row.total_trades >= 2),
-    (row) => row.avg_pnl * 1000 + row.win_rate_pct
-  );
+  const bestSetup =
+    (analytics?.bySetupType ?? [])
+      .map((row) => evaluatePlaybookPattern(row, "setup", snapshot))
+      .filter((pattern) => pattern.avgPnl > 0)
+      .sort(
+        (left, right) =>
+          playbookConfidenceRank[right.confidence] - playbookConfidenceRank[left.confidence] ||
+          right.avgPnl - left.avgPnl ||
+          right.totalTrades - left.totalTrades
+      )[0] ?? null;
 
   if (!bestSetup) {
     return {
@@ -17431,34 +17939,34 @@ const buildPersonalPlaybookSummary = (
       stats: [
         { label: "Trades", value: String(analytics?.summary.total_trades ?? 0) },
         { label: "Win Rate", value: formatStatsPercent(analytics?.summary.win_rate_pct) },
-        { label: "Average PnL", value: formatJournalPnlMetric(analytics?.summary.avg_pnl) }
+        { label: "Average PnL", value: formatJournalPnlMetric(analytics?.summary.avg_pnl) },
+        { label: "Total Result", value: formatJournalPnlMetric(analytics?.summary.total_pnl) }
       ],
       items: [
         "Close and review more trades before turning one pattern into a personal rule."
-      ]
+      ],
+      confidence: "INSUFFICIENT DATA",
+      evidence: ["Current evidence is too limited to trust a personal playbook pattern yet."]
     };
   }
 
   return {
-    tone: bestSetup.avg_pnl > 0 ? "positive" : "neutral",
-    title: humanizeJournalBucketKey(bestSetup.key, "setup"),
+    tone: bestSetup.confidence === "HIGH" ? "positive" : bestSetup.confidence === "MEDIUM" ? "neutral" : "caution",
+    title: bestSetup.label,
     subtitle: "This is the best recorded setup pattern in your saved journal history.",
     badge: "Best Setup",
     stats: [
-      { label: "Trades", value: String(bestSetup.total_trades) },
-      { label: "Win Rate", value: formatStatsPercent(bestSetup.win_rate_pct) },
-      { label: "Average PnL", value: formatJournalPnlMetric(bestSetup.avg_pnl) },
-      {
-        label: "Best Side",
-        value: strongestSide ? humanizeJournalBucketKey(strongestSide.key, "side") : "--"
-      }
+      { label: "Trades", value: String(bestSetup.totalTrades) },
+      { label: "Win Rate", value: formatStatsPercent(bestSetup.winRatePct) },
+      { label: "Average Result", value: formatJournalPnlMetric(bestSetup.avgPnl) },
+      { label: "Total Result", value: formatJournalPnlMetric(bestSetup.totalPnl) }
     ],
     items: [
-      `${humanizeJournalBucketKey(bestSetup.key, "setup")} is the clearest repeatable pattern in saved results.`,
-      strongestSide
-        ? `${humanizeJournalBucketKey(strongestSide.key, "side")} trades remain the stronger side overall.`
-        : "Side preference is still building from saved history."
-    ]
+      `Evidence: ${bestSetup.evidenceSummary}`,
+      ...bestSetup.evidence
+    ],
+    confidence: bestSetup.confidence,
+    evidence: bestSetup.evidence
   };
 };
 
@@ -17840,8 +18348,8 @@ function KnowledgeWorkspacePanel({
     [journalAnalytics, journalEntries, snapshot]
   );
   const playbookSummary = useMemo(
-    () => buildPersonalPlaybookSummary(journalAnalytics),
-    [journalAnalytics]
+    () => buildPersonalPlaybookSummary(snapshot, journalAnalytics),
+    [journalAnalytics, snapshot]
   );
   const lessonSummary = useMemo(
     () => buildTradingLessonSummary(snapshot, journalAnalytics, journalEntries),
@@ -17930,20 +18438,46 @@ function KnowledgeWorkspacePanel({
             <PlainMeaning>
               Rule-based observations pulled from saved reviews, replay coverage, and journal history.
             </PlainMeaning>
-            <div className="mt-2 grid gap-3 xl:grid-cols-3">
+            <div className="mt-2 grid gap-3 xl:grid-cols-2">
               <ReviewCoachSectionCard
                 section={{ title: "STRENGTHS", tone: "good", items: learningCard.strengths }}
               />
               <ReviewCoachSectionCard
                 section={{ title: "WEAKNESSES", tone: "improve", items: learningCard.weaknesses }}
               />
-              <ReviewCoachSectionCard
-                section={{ title: "FOCUS THIS WEEK", tone: "repeat", items: learningCard.focus }}
-              />
             </div>
           </div>
 
           <PersonalPlaybookCard playbook={playbookSummary} />
+
+          <BestSupportedPatternsSection
+            patterns={learningCard.bestSupportedPatterns}
+            warnings={learningCard.weakEvidenceWarnings}
+          />
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            <ReviewCoachSectionCard
+              section={{ title: "REPEAT MORE", tone: "good", items: learningCard.repeatMore }}
+            />
+            <ReviewCoachSectionCard
+              section={{ title: "AVOID MORE", tone: "improve", items: learningCard.avoidMore }}
+            />
+          </div>
+
+          <MeaningFirstSummaryCard
+            eyebrow="Learning Patterns"
+            title="Observed Pattern"
+            description="Historical observations shown only when the supporting evidence is strong enough to trust."
+            badge={learningCard.enoughHistory ? "Recorded Patterns" : "History Building"}
+            tone={learningCard.enoughHistory ? "positive" : "neutral"}
+            items={learningCard.patterns}
+          />
+
+          <HabitTrackerCard habits={learningCard.habits} />
+
+          <ReviewCoachSectionCard
+            section={{ title: "WEEKLY FOCUS", tone: "repeat", items: [learningCard.weeklyFocus] }}
+          />
 
           <MeaningFirstSummaryCard {...lessonSummary} />
 
