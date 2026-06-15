@@ -9,19 +9,64 @@ Scope of this audit:
 - No long-running operations, dev servers, desktop packaging, live Binance calls or builds were run during this README-only audit.
 - README is aligned to observed source code. Where older README text and code differed, this document follows the code.
 
-Active project root:
+Project Root:
 
 ```text
-C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener
+C:\darrascreener
 ```
 
-For Darra / Scalp Station work, start in this root unless the user explicitly says otherwise.
+All commands must be executed from this directory unless the user explicitly says otherwise.
 
 ## Project Summary
 
 Darra / Scalp Station is a local-first Binance USDT-M futures decision system. It combines a backend market/risk engine, a Next.js realtime dashboard, and an Electron desktop shell for multi-window trading workflows.
 
 Darra is not a terminal with a journal. Darra is a decision system with execution attached.
+
+Desktop shell status:
+
+- The app is now a window-native terminal, not a dashboard-first shell.
+- `dashboard` is now `Legacy Workspace`.
+- The Window Manager is the primary desktop entrypoint.
+- Shell stabilization chain:
+  - PR-S1 Atomic Active Layout Persistence: PASS
+  - PR-S2 Deterministic Shutdown Snapshot: PASS with limited UI smoke
+  - PR-S3 DesktopManagedWindowKey Registry Hardening: PASS
+  - PR-S4 Monitor Topology Matching Hardening: PASS
+- Desktop measurement and hardening chain:
+  - PR-M1 Passive Runtime Telemetry Spine: PASS
+  - PR-M2 Controlled Stress Harness: PASS
+  - PR-M3 Metrics Run Framing: PASS
+  - PR-M5 Restore Stress Harness: PASS
+  - PR-O1 Stress/Open Idempotency Hardening: PASS
+  - PR-P1 Restore Batch Mode: PASS
+  - PR-P2 Layout Atomic Write Retry Hardening: PASS
+- PR-S3 notes:
+  - real drift was found: `replay` was missing from `terminalWindowKeys`
+  - `terminalWindowKeys` is now derived from `dashboard + desktopManagedModuleSections`
+  - `npm run check:desktop-window-registry` was added in `desktop/`
+  - a new managed window key can no longer be added silently without registry verification failing
+  - PR-S3 is a registry-hardening PR, not a shared-registry refactor
+- PR-S4 notes:
+  - display resolution now prefers exact `displayId`
+  - active layout restore now falls back to bounds/display matching before primary fallback
+  - monitor profile apply now falls back to conservative fingerprint matching via `capturedDisplays`
+  - ambiguous monitor topology still falls back to primary instead of guessing
+  - PR-S4 did not change schemas, startup behavior, workspaces, or window groups
+  - manual multi-monitor QA is still recommended
+- PR-M4 high-window findings:
+  - practical working target is 20-30 windows
+  - hard current cap is 33 non-dashboard managed windows
+  - desktop state payload size around 7-8 KB is not the bottleneck
+  - broadcast/lifecycle churn is the current bottleneck candidate
+- Restore after PR-P1:
+  - 33 windows restored in about 2447 ms in the restore stress harness
+  - restore broadcasts were reduced from `N+1` to `1`
+- Atomic write retry hardening after PR-P2:
+  - atomic layout/registry rename retries cover `EPERM`, `EBUSY` and `ENOTEMPTY`
+  - retry uses bounded synchronous backoff
+  - target files are still replaced only by successful atomic rename, so partial JSON is not silently written
+  - retry exhaustion still throws instead of hiding persistence failures
 
 - Signal: backend-ranked Binance futures symbols with score, momentum, flow, volume, spread, liquidation, funding and risk context.
 - Decision: Decision Inbox, unified signals, why-now context and explicit `ENTER`, `WAIT` or `SKIP` decision context.
@@ -442,6 +487,42 @@ prove trust, unify signals, make decisions explicit, and turn trades into durabl
 
 There is no root `package.json` in the active `darrascreener` folder. Run build/check commands inside `backend/`, `frontend/` or `desktop/`.
 
+### Desktop Shell Architecture
+
+Desktop shell doctrine:
+
+```text
+Workspace = Intent
+Layout = Geometry
+Monitor Profile = Physical Topology
+Window Group = Symbol Context
+```
+
+Meaning:
+
+- Workspace chooses which managed windows belong to a trading scenario.
+- Layout stores geometry only: open state, bounds, display placement, always-on-top and opacity.
+- Monitor Profile stores physical monitor-role topology separately from layouts.
+- Window Group stores metadata-only symbol context for windows.
+
+Current desktop architecture rules:
+
+- Window Groups v1 are metadata-only.
+- `group.symbol` is a label, not trading state.
+- Window Groups do not change selected symbol, chart symbol, order symbol or risk symbol.
+- Window Groups do not change backend subscriptions, backend routing, risk scope, execution behavior, routes or trading logic.
+- Backend, risk, order and execution flows were not changed by PR-4.
+
+Desktop shell roadmap status:
+
+| PR | Scope | Status | Notes |
+| --- | --- | --- | --- |
+| PR-0 | Window Manager First | PASS | Window Manager is primary entrypoint; startup is no longer dashboard-first. |
+| PR-1 | Saved Layouts | PASS | Active session layout and named saved layouts are separated. |
+| PR-2A | Scenario Workspaces | PASS | Scenario Workspaces are separate from Legacy Workspace presets. |
+| PR-3 | Monitor Profiles v1 | PASS | Physical monitor topology is stored separately from layout geometry. |
+| PR-4 | Window Groups v1 | PASS | Metadata-only symbol context, window assignment and live badge propagation are implemented. |
+
 ### Mobile, Authentication, Voice And QR Capabilities
 
 Verified implemented capabilities:
@@ -572,10 +653,10 @@ Beta means the workstation is safe and coherent enough for controlled local/pape
 
 ### Must Have For Beta
 
-- P0.3-A1 `maxLeverage` source is implemented with backend check coverage, but requires configured Binance/testnet runtime smoke before beta release sign-off.
-- P0.3-A2 `maxDailyLoss` backend implementation/check coverage is DONE with an authoritative current-day realized PnL ledger/query; runtime confidence remains PARTIAL until configured runtime smoke is completed.
-- P0.8 can become DONE only after P0.3 gaps are closed and real configured testnet runtime smoke confirms REST, market WS, private WS and order preflight alignment.
-- P0.4 Testnet / Live Environment Policy hardening is DONE for readiness policy; release/runtime remains PARTIAL until runtime smoke confirms the configured testnet stack.
+- P0.3-A1 `maxLeverage` source is implemented with backend check coverage and SG-007G configured testnet runtime evidence confirms leverage bracket retrieval is PASS.
+- P0.3-A2 `maxDailyLoss` backend implementation/check coverage is DONE with an authoritative current-day realized PnL ledger/query; live production loss-ledger behavior still requires separate live proof.
+- P0.8 is TESTNET READY for the current gated/non-mutating preflight scope: SG-007G/SG-007R confirm configured testnet runtime connectivity and SG-008A confirms non-mutating order preflight + Safe-To-Add acceptance.
+- P0.4 Testnet / Live Environment Policy hardening is DONE for readiness policy; configured testnet runtime is validated for the current non-mutating preflight scope, while live trading remains NOT READY.
 - Order validation must remain backend-owned.
 - Live trading gates must not be weakened.
 - Safe-To-Add lifecycle is implemented as a real submit-control lifecycle and must remain backend-owned.
@@ -607,15 +688,15 @@ Beta should not try to:
 
 ## Release Readiness Meter
 
-These percentages are source-audit estimates. No builds, packaged desktop smoke, dev servers, live Binance calls or runtime validation were run in this README-only pass.
+These percentages are legacy source-audit estimates, now supplemented by the SG-007G/SG-007R configured testnet runtime proof and SG-008A non-mutating preflight proof. They do not claim live trading or real order-submit readiness.
 
 | Area | Current readiness | Reason |
 | --- | ---: | --- |
-| Safety / Live Gates | 85% | Strong disabled-by-default posture, `live_safety_state` and hardened testnet/live environment policy exist; runtime testnet smoke and final beta proof remain. |
-| Order Validation | 90% | Backend validation, exchange filters, reduce-only, duplicate ID checks, `max_leverage` validation and backend `max_daily_loss` fail-closed checks exist; configured runtime smoke still remains. |
-| Risk Limits | 84% | Max order notional, max position notional, max open positions, margin checks, conservative `maxLeverage` enforcement and backend-owned `maxDailyLoss` enforcement exist; runtime confidence remains pending. |
+| Safety / Live Gates | 92% | Strong disabled-by-default posture, `live_safety_state`, hardened testnet/live environment policy and SG-007G configured testnet readiness proof exist. Live trading remains NOT READY. |
+| Order Validation | 94% | Backend validation, exchange filters, reduce-only, duplicate ID checks, `max_leverage`, backend `max_daily_loss` fail-closed checks and SG-008A non-mutating BTCUSDT preflight acceptance exist. Real submit/cancel remains unproven. |
+| Risk Limits | 88% | Max order notional, max position notional, max open positions, margin checks, conservative `maxLeverage` enforcement and backend-owned `maxDailyLoss` enforcement exist; SG-007G confirms configured testnet leverage bracket retrieval. Live production loss-ledger proof remains separate. |
 | Realtime Transport | 83% | Snapshot/patch, `frameSeq`/`baseSeq`, missing-sequence recovery and compact transport exist; chaos/runtime validation remains. |
-| Desktop Shell | 78% | Electron windows, tray, opacity, always-on-top, single-instance and restore exist; packaged smoke is still required. |
+| Desktop Shell | 90% | Electron windows, tray, opacity, always-on-top, single-instance and restore exist; packaged smoke evidence supports READY status, with tray/window-close behavior documented as a note. |
 | Trading Workspace UX | 70% | Presets and cleaner defaults exist; live workflow is still dense and needs P1.5 simplification. |
 | Signal Discovery | 82% | Screener, Decision Inbox ranking/filtering, Why Trade / Why Not Trade and duplicate merge exist; unified ranked stream remains. |
 | Safe-To-Add | 90% | Real submit-control lifecycle exists with backend preflight binding, preserved account blockers and aligned sizing/preflight semantics. |
@@ -640,20 +721,24 @@ This ledger records the latest validated release evidence and separates beta rea
 | Backend runtime health | PASS WITH NOTE | `/health` and `/health/diagnostics` were live on the backend runtime. | First launch needed explicit testnet REST/WS process env. |
 | WebSocket snapshot | PASS WITH NOTE | welcome + snapshot received; `unifiedSignals` present. | Standalone volume arrays were absent in that PR-33D snapshot but already proven in PR-32B.1. |
 | Desktop package | PASS WITH NOTE | `prepare:bundles` and `package:folder` passed, and PR-35 packaged runtime smoke confirmed the app launches, serves health, accepts WS snapshot requests, and shuts down cleanly. | Normal window close does not fully exit because the application uses tray behavior. Forced shutdown of only the launched packaged runtime PID tree was used for cleanup. No orphan packaged processes remained. |
-| Safety gates | PARTIAL | `order-safety` and `live-readiness` checks passed. | Live submit-path preflight binding is still unproven without a safe control-token/harness. |
+| Safety gates | PASS WITH RUNTIME LIMITATION | `order-safety`, `live-readiness`, SG-006 lifecycle recovery close/review checks, SG-007G configured testnet runtime harness and SG-008A non-mutating preflight smoke passed. LR5A.1/LR5B.1/LR5B.2 prove submit/cancel intent durability and preflight/decision-context ordering; LR5C.4-LR5C.5D prove recovery close evaluator gating, live/testnet lifecycle closure, DecisionReview persistence and duplicate-review safety. | SG-006 runtime proof still uses temp SQLite rather than a full service startup replay. Live trading, broad unattended execution and real order submit/cancel remain outside this evidence. |
+| SG-006 live lifecycle recovery close/review | PASS WITH RUNTIME LIMITATION | Recovery closes an existing live/testnet lifecycle only when `evaluateLiveLifecycleClosure(...)` returns `CAN_CLOSE`, creates DecisionReview only after `closePositionLifecycle(...)` succeeds, and temp-SQLite fixture proof confirms persisted review creation plus idempotency. | Full service startup replay with injected Binance/testnet fixtures remains NOT READY; no Binance network calls were used for the proof. |
 | UnifiedSignal transport | PASS | runtime confirmed `unifiedSignals` includes `alert`, `volume_milestone`, `volume_threshold_milestone`. | None from the validated transport smoke. |
 | Legacy compatibility fields | KEEP_FOR_NOW | PR-32G found removal is not safe yet. | Keep compatibility arrays until a dedicated removal-readiness audit passes. |
 | Paper/Desktop Beta readiness | BETA_CANDIDATE | PR-37 clean packaged runtime validation: PASS. PR-38 legacy compatibility blockers are compatibility debt, not a paper/desktop beta blocker. | Keep legacy compatibility fields until a dedicated removal-readiness audit passes. |
-| Live/Testnet Beta readiness | BLOCKED | PR-42D configured testnet retest: private WS CONNECTING, account stream enabled but connected=false, leverage bracket lookup failed, order preflight rejected with `account_connection`, `max_leverage`, `margin_available`, and Safe-To-Add BLOCK. | Live/testnet remains blocked until private account stream and leverage bracket lookup pass. Current behavior is safe because preflight rejects and Safe-To-Add is BLOCK. |
+| Live Trading readiness | NOT READY | Live trading remains disabled behind readiness gates, typed-confirm/control-token requirements, testnet policy and kill-switch protections. No live trading enablement or live Binance proof was performed. | Requires explicit live-readiness policy decision and separate live runtime proof; do not enable from SG-006 evidence. |
+| Testnet Trading readiness | TESTNET READY / PASS | SG-007G/SG-007R configured runtime evidence is PASS: intended mode TESTNET, REST/WS classified TESTNET, credential presence configured/redacted, authenticated REST account access PASS, listenKey creation PASS, private WS PASS, account snapshot PASS, leverage bracket PASS and preflight readiness inputs PASS with `TESTNET_ONLY`. SG-008A non-mutating BTCUSDT preflight is ACCEPTED and Safe-To-Add is ALLOW. | Ready for the current gated/non-mutating testnet preflight evidence. Real testnet order submit/cancel, TP/SL creation and broad unattended execution are not proven by SG-008A. |
 | Legacy deprecation readiness | NOT_READY_FOR_DEPRECATION | PR-38 legacy compatibility blockers: NOT_READY_FOR_DEPRECATION. Alerts, `volumeMilestones`, and `volumeThresholdMilestones` cannot be removed today. | Keep legacy alerts and legacy volume fields until a dedicated removal-readiness audit passes. |
 | Decision chain/replay | PASS WITH NOTE | signal-linked paper chain preserved `unifiedSignalId` end-to-end; old missing link classified as manual/old artifact. | Broader historical chain coverage is still partial. |
 | Git hygiene | PASS | baseline commit exists; current status should be clean after the PR-33 fix commit. | Pending commit hygiene if local worktree changes remain uncommitted. |
-| Release readiness | PARTIAL | Paper/Desktop beta evidence is now strong, but live/testnet beta is still blocked by configured runtime gaps. | Clean separation of paper vs live beta readiness is now documented; live/testnet still needs private account stream and leverage bracket proof. |
+| Release readiness | PARTIAL | Desktop Shell is READY, Paper Trading is READY, Testnet Trading is READY for the current gated/non-mutating preflight scope, and Live Trading is NOT READY. | Real testnet order submit/cancel, broad unattended execution and live trading proof remain future work. UNKNOWN == NOT READY. |
 
-Release readiness:
+Current status summary:
 
-- Paper/Desktop Beta: BETA_CANDIDATE
-- Live/Testnet Beta: BLOCKED
+- Desktop Shell: READY
+- Paper Trading: READY
+- Testnet Trading: READY for current gated testnet/preflight evidence
+- Live Trading: NOT READY
 
 PR-35 Desktop Packaged Runtime Smoke
 PASS WITH NOTE
@@ -666,7 +751,7 @@ No orphan packaged processes remained.
 
 ## Release Evidence Consolidation
 
-This section consolidates only evidence already validated in PR-32, PR-33, PR-34 and PR-35.
+This section consolidates validated release evidence, including PR-32 through PR-35 and the SG-006 LR5 safety evidence.
 
 ### Build Evidence
 
@@ -688,11 +773,93 @@ This section consolidates only evidence already validated in PR-32, PR-33, PR-34
 
 ### Configured Testnet Evidence
 
-- private WS: FAIL
-- account stream: FAIL
-- leverage bracket: FAIL
-- order preflight: REJECTED
-- Safe-To-Add: BLOCK
+- SG-007G Credential-Safe Testnet Runtime Harness: PASS
+- SG-007R configured runtime rollup: PASS
+- intendedMode: TESTNET
+- restEnvironment: TESTNET
+- wsEnvironment: TESTNET
+- restBase: `https://testnet.binancefuture.com`
+- wsBase: `wss://stream.binancefuture.com`
+- credential presence: configured, redacted, no secrets printed
+- REST authenticated account access: PASS
+- listenKey creation: PASS
+- private WS: PASS
+- account snapshot: PASS
+- position snapshot: PASS
+- leverage bracket: PASS
+- preflight readiness inputs: PASS
+- liveReadinessMode: TESTNET_ONLY
+- liveReadinessReady: true
+- non-mutating order preflight: PASS / ACCEPTED
+- Safe-To-Add: PASS / ALLOW
+- mark price fallback: PASS via premiumIndex markPrice
+
+### SG-008A Testnet Non-Mutating Preflight Smoke - PASS
+
+What was proven:
+
+- The backend can build and validate a real BTCUSDT testnet order preflight without placing an order.
+- The final preflight status was ACCEPTED.
+- Safe-To-Add returned ALLOW.
+- The no-position-row scenario is covered: `positionRisk` had no BTCUSDT row, but preflight still succeeded using public testnet premiumIndex mark price.
+
+Why the fallback was needed:
+
+- Runtime `positionRisk` returned `positionCount: 0`.
+- `btcusdtPresent: false`.
+- `btcusdtMarkPricePresent: false`.
+- A signed position snapshot can be valid while a symbol has no position row, so mark price cannot depend only on `positionRisk`.
+
+Exact fallback order:
+
+1. `positionRisk markPrice`
+2. public testnet `/fapi/v1/premiumIndex?symbol=BTCUSDT`
+3. public testnet `/fapi/v1/ticker/price?symbol=BTCUSDT`
+
+Runtime evidence summary:
+
+- selectedSource: `premiumIndex markPrice`
+- selectedEndpoint: `/fapi/v1/premiumIndex`
+- selectedPrice: `64088.54396739`
+- positionRiskRowPresent: `false`
+- symbol: `BTCUSDT`
+- side: `BUY`
+- type: `MARKET`
+- quantity: `0.0008`
+- normalizedQuantity: `0.0008`
+- marketPriceSource: `premiumIndex markPrice`
+- marketPriceEndpoint: `/fapi/v1/premiumIndex`
+- normalizedPrice: `64088.5`
+- notional: `51.270835173912`
+- accepted: `true`
+- failedChecks: `[]`
+
+Exchange filters:
+
+- tickSize: `0.1`
+- stepSize: `0.0001`
+- minQty: `0.0001`
+- minNotional: `50`
+- pricePrecision: `2`
+- quantityPrecision: `4`
+
+Safe-To-Add:
+
+- status: `ALLOW`
+- allowed: `true`
+- blockers: `[]`
+- warnings: `[]`
+- accountBlockers: `[]`
+
+Safety constraints preserved:
+
+- No real order submit occurred.
+- No cancel was sent.
+- No TP/SL creation occurred.
+- No lifecycle was created, updated or closed.
+- No DecisionReview was created.
+- No DB writes were performed by this smoke.
+- No live trading was enabled.
 
 ### UnifiedSignal Evidence
 
@@ -710,14 +877,18 @@ This section consolidates only evidence already validated in PR-32, PR-33, PR-34
 
 - order-safety: PASS
 - live-readiness: PASS
+- SG-006 live lifecycle recovery close/review: PASS WITH RUNTIME LIMITATION
+- SG-007G/SG-007R configured testnet runtime: PASS
+- SG-008A non-mutating testnet preflight: PASS / ACCEPTED
 
 ### Known Gaps
 
 - PR-33D standalone volume arrays were absent in that snapshot, although they were already proven in PR-32B.1.
-- Live submit-path preflight binding was still unproven in the validated evidence set.
+- Real testnet order submit/cancel, TP/SL creation, broad unattended execution and live trading remain outside SG-008A.
+- SG-006 full service startup replay remains a runtime limitation; the persistence proof used temp SQLite.
 - Full clean-start smoke, native/background client validation, and legacy compatibility watch were still outstanding in the broader release ledger.
 
-Final verdict: PAPER/DESKTOP BETA_CANDIDATE; LIVE/TESTNET BLOCKED
+Final verdict: DESKTOP SHELL READY; PAPER TRADING READY; TESTNET TRADING READY FOR CURRENT GATED/NON-MUTATING PREFLIGHT EVIDENCE; LIVE TRADING NOT READY
 
 ## What Was Already Implemented
 
@@ -1090,10 +1261,10 @@ Remaining risks:
 | Duplicate alert merge | DONE | Frontend merge for visible alerts by symbol/kind/bias and TTL. | Unknown-kind alerts can merge more broadly. |
 | Volume milestone noise reduction | PARTIAL | Live defaults hide threshold milestones; 100M panel shows above-direction by default. | Backend milestone ranking/metadata and UI toggle for hidden below events remain. |
 | Why Trade / Why Not Trade | DONE | Backend-generated explanation arrays, frontend chips. | Account-specific context depends on Safe-To-Add and preflight freshness. |
-| Safe-To-Add | DONE / PASS | Real submit-control lifecycle, backend aggregator, account blockers, typed preflight payload/binding and ticket strip. | Runtime smoke still remains for overall release confidence. |
+| Safe-To-Add | DONE / PASS | Real submit-control lifecycle, backend aggregator, account blockers, typed preflight payload/binding and ticket strip. SG-008A confirms non-mutating BTCUSDT testnet preflight ACCEPTED and Safe-To-Add ALLOW. | Real submit/cancel execution remains outside SG-008A. |
 | Automatic order preflight | DONE | Debounced `request_order_preflight`, requestId tracking, stale response protection. | Advisory lifecycle still needs final policy. |
-| Live safety gates | DONE / runtime smoke pending | `live_safety_state`, live readiness, config gates, token/testnet/kill-switch checks and hardened testnet/live environment classification. | Real configured testnet smoke still recommended before release/runtime readiness. |
-| Order validation | DONE with runtime confidence gaps | Exchange filters, reduce-only checks, duplicate client order IDs, implemented live risk checks, conservative `max_leverage` validation and backend `max_daily_loss` fail-closed enforcement. | Configured runtime smoke still remains. |
+| Live safety gates | DONE / TESTNET RUNTIME PASS | `live_safety_state`, live readiness, config gates, token/testnet/kill-switch checks and hardened testnet/live environment classification. SG-007G confirms configured testnet runtime readiness inputs PASS with `TESTNET_ONLY`. | Live trading enablement and live endpoint proof remain NOT READY. |
+| Order validation | DONE with testnet preflight proof | Exchange filters, reduce-only checks, duplicate client order IDs, implemented live risk checks, conservative `max_leverage` validation and backend `max_daily_loss` fail-closed enforcement. | Real submit/cancel execution and long-run restart confidence remain outside SG-008A. |
 | Realtime frame recovery | DONE | Sequence-aware snapshot/patch path, missing seq rejection, resync request. | More telemetry and runtime chaos testing would help. |
 | Desktop single-instance | DONE | `app.requestSingleInstanceLock()` and second-instance focus/restore. | Needs desktop smoke on packaged app. |
 | Persistence expectations | DONE with runtime confidence gaps | SQLite schema, WAL, orders, append-only realized PnL ledger, audit, paper positions, journal, frontend IndexedDB, desktop layout. | Runtime smoke and long-run restart confidence still remain. |
@@ -1585,10 +1756,10 @@ Risk mitigation:
 
 ### Blocked Tasks
 
-P0.3-A1 maxLeverage runtime smoke pending:
+P0.3-A1 maxLeverage runtime smoke - PASS for configured testnet:
 
-- Blocker/risk: no real Binance/testnet bracket fetch smoke has been performed yet.
-- Unblock path: run configured testnet backend smoke and verify `/fapi/v1/leverageBracket` responses, cache behavior and the `max_leverage` safety check.
+- Evidence: SG-007G configured testnet runtime harness reports leverage bracket retrieval PASS.
+- Remaining risk: live trading and real order execution are not enabled or proven by this smoke.
 
 P0.3-A2 maxDailyLoss ledger - DONE for backend implementation/check coverage / PARTIAL for runtime confidence:
 
@@ -1608,8 +1779,8 @@ P0.3-A2 maxDailyLoss ledger - DONE for backend implementation/check coverage / P
 
 P0.8 acceptance:
 
-- Blocker: missing real configured testnet runtime smoke for P0.3-A1/P0.3-A2.
-- Unblock path: run configured testnet runtime smoke for REST, market WS, private WS, leverage bracket fetch and order preflight alignment, then rerun acceptance verification.
+- Status: TESTNET READY / PASS for current gated non-mutating preflight evidence.
+- Remaining risk: real order submit/cancel, TP/SL creation, broad unattended execution and live trading remain future proof items.
 
 P3.1 Safe-To-Add lifecycle - DONE / PASS:
 
@@ -1730,25 +1901,25 @@ Use `npm.cmd` on Windows PowerShell because `npm.ps1` can be blocked.
 Backend:
 
 ```powershell
-cd "C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener\backend"
-npm.cmd run build
-npm.cmd run check:live-readiness
-npm.cmd run check:order-safety
+cd "C:\darrascreener"
+npm.cmd --prefix backend run build
+npm.cmd --prefix backend run check:live-readiness
+npm.cmd --prefix backend run check:order-safety
 ```
 
 Frontend:
 
 ```powershell
-cd "C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener\frontend"
-npm.cmd run build
+cd "C:\darrascreener"
+npm.cmd --prefix frontend run build
 ```
 
 Desktop bundle smoke preparation:
 
 ```powershell
-cd "C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener\desktop"
-npm.cmd run prepare:bundles
-npm.cmd run package:folder
+cd "C:\darrascreener"
+npm.cmd --prefix desktop run prepare:bundles
+npm.cmd --prefix desktop run package:folder
 ```
 
 Runtime health checks, only when a backend is intentionally running:
@@ -1765,7 +1936,7 @@ README-only/documentation-only changes normally do not require builds. Say clear
 Good task shape:
 
 ```text
-Work in C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener.
+Work in C:\darrascreener.
 Read-only audit first.
 Do not read .env* or secrets.
 Scope: backend only / frontend only / README only / exact files.
@@ -1813,9 +1984,9 @@ Remaining watch items: legacy compatibility deprecation readiness, desktop polis
 
 ### Live/Testnet Beta
 
-Status: BLOCKED.
-Why: configured testnet retest failed on private account stream and leverage bracket lookup, and preflight rejected safely with `account_connection`, `max_leverage`, and `margin_available`.
-Blocked until: private account stream and leverage bracket lookup pass cleanly on configured testnet.
+Status: TESTNET READY for current gated non-mutating preflight evidence; LIVE TRADING NOT READY.
+Why: SG-007G/SG-007R configured testnet runtime evidence is PASS, and SG-008A non-mutating BTCUSDT preflight is ACCEPTED with Safe-To-Add ALLOW.
+Blocked until for broader execution: real testnet order submit/cancel, TP/SL creation and broad unattended execution need separate explicit proof.
 
 ### 1. Run P0.3-A1 maxLeverage runtime smoke
 
@@ -1833,15 +2004,15 @@ Why important: max daily loss is a core live safety gate and must stay backend-o
 Implemented: append-only realized PnL ledger; idempotent writes; explicit UTC day boundary; live `ORDER_TRADE_UPDATE` ledger writes; paper close-event ledger writes; current-day realized PnL aggregate; backend `max_daily_loss` fail-closed validation for non-reduce-only live orders.
 Files: `backend/src/storage/migrations.ts`, `backend/src/storage/order-repository.ts`, `backend/src/services/binance-order-service.ts`, `backend/src/safety/order-safety.ts`, `backend/src/types/messages.ts`, `frontend/lib/types.ts`, `backend/src/safety/order-safety.check.ts`.
 Verification: backend `npm run check:order-safety` passed; backend `npm run build` passed; frontend `npm run build`: add actual result after manual run.
-Remaining risks: UTC day-boundary product decision may still be needed; Binance income/funding events are not separately pulled into the ledger; configured runtime smoke still remains.
+Remaining risks: UTC day-boundary product decision may still be needed; Binance income/funding events are not separately pulled into the ledger; live production loss-ledger proof remains separate from SG-007G/SG-008A.
 
-### 3. Run configured testnet runtime smoke
+### 3. Preserve configured testnet runtime smoke evidence
 
-Goal: verify that the real configured testnet runtime aligns across REST, market WS, private WS and order preflight.
-Why important: P0.4 policy is hardened, but release/runtime readiness still needs runtime evidence against actual configured endpoints.
+Goal: keep SG-007G/SG-007R and SG-008A evidence current without weakening gates or enabling live trading.
+Why important: configured testnet runtime and non-mutating preflight are now PASS, but real submit/cancel execution remains deliberately unproven.
 Files: README plus runtime-only verification notes; do not change code unless smoke reveals a real bug.
 Risk: HIGH.
-Acceptance criteria: backend starts with intended testnet configuration; REST, market WS, private WS and order preflight all report/behave as testnet-aligned; no live endpoint drift appears in readiness state.
+Acceptance criteria: backend remains intended TESTNET, private WS/account/leverage/preflight evidence remains PASS, no live endpoint drift appears in readiness state and no real order submit is claimed without separate proof.
 Do not touch: order REST execution logic, live gate defaults, `.env*` files or secrets.
 
 ### 4. P3.1 Safe-To-Add submit lifecycle implementation
@@ -1934,7 +2105,7 @@ Do not touch: order validation, live readiness, persistence schema.
 Recommended quick code checks:
 
 ```powershell
-cd "C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener"
+cd "C:\darrascreener"
 rg --line-number "maxLeverage|maxDailyLoss|evaluateOrderRiskSafety" backend/src -g "!**/.env*"
 rg --line-number "request_order_preflight|order_preflight|safeToAdd" backend/src frontend -g "!**/.env*"
 rg --line-number "requestSingleInstanceLock|restoreSavedManagedWindows" desktop/main.cjs
@@ -1943,27 +2114,26 @@ rg --line-number "requestSingleInstanceLock|restoreSavedManagedWindows" desktop/
 Build checks when code changes:
 
 ```powershell
-cd "C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener\backend"
-npm.cmd run build
-npm.cmd run check:live-readiness
-npm.cmd run check:order-safety
+cd "C:\darrascreener"
+npm.cmd --prefix backend run build
+npm.cmd --prefix backend run check:live-readiness
+npm.cmd --prefix backend run check:order-safety
 
-cd "C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener\frontend"
-npm.cmd run build
+npm.cmd --prefix frontend run build
 ```
 
 Desktop packaging checks when desktop shell or bundle scripts change:
 
 ```powershell
-cd "C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener\desktop"
-npm.cmd run prepare:bundles
-npm.cmd run package:folder
+cd "C:\darrascreener"
+npm.cmd --prefix desktop run prepare:bundles
+npm.cmd --prefix desktop run package:folder
 ```
 
 README-only changes:
 
 ```powershell
-cd "C:\Users\BRO\Downloads\Telegram Desktop\darrascreener\darrascreener"
+cd "C:\darrascreener"
 git diff -- README.md
 ```
 
@@ -2033,7 +2203,7 @@ First audit executionWorkspaceState.
 
 Project quality today: 7.5/10.
 
-The project already looks like a serious decision system with execution attached: backend-owned calculations, typed WebSocket contracts, gated order flow, paper/live separation, desktop multi-window shell, persistence, replay/journal analytics and telemetry are all present in source. It is closer to beta sign-off now that P0.3-A2 `maxDailyLoss`, core-chain repositories and P3.1 Safe-To-Add lifecycle implementation/check coverage are in place, but it is still not beta-release-ready because P0.3-A1/P0.3-A2 runtime smoke, configured testnet runtime smoke, packaged desktop smoke, UnifiedSignal consolidation, decision workflow coverage and some UI/workflow complexity remain unresolved.
+The project already looks like a serious decision system with execution attached: backend-owned calculations, typed WebSocket contracts, gated order flow, paper/live separation, desktop multi-window shell, persistence, replay/journal analytics and telemetry are all present in source. It is closer to beta sign-off now that SG-007G/SG-007R configured testnet runtime evidence and SG-008A non-mutating preflight evidence are PASS, but live trading, real submit/cancel proof, broad unattended execution, UnifiedSignal consolidation, decision workflow coverage and some UI/workflow complexity remain unresolved.
 
 Doctrine alignment today: PARTIAL.
 
@@ -2053,6 +2223,6 @@ What does not fully align yet:
 
 README quality after this update: 9.5/10.
 
-Beta readiness: 89%.
+Beta readiness: Desktop Shell READY; Paper Trading READY; Testnet Trading READY for current gated/non-mutating preflight evidence; Live Trading NOT READY.
 
-This readiness score is intentionally not higher because it is based on source audit only, not backend build, frontend build, packaged desktop smoke or runtime validation.
+This readiness does not claim live trading readiness, broad unattended execution readiness or real testnet order-submit proof. UNKNOWN == NOT READY.

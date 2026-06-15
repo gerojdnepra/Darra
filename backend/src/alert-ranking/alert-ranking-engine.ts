@@ -31,6 +31,10 @@ export interface AlertRankingInput {
 
 interface ExtractedAlertRankingFeatures {
   volumeImpulse: number | null;
+  confidenceScore: number | null;
+  signalStabilityScore: number | null;
+  signalVolatilityClass: string | null;
+  marketRegime: string | null;
   cvdSlope: number | null;
   cvdDivergence: string | null;
   oiChange5m: number | null;
@@ -93,6 +97,10 @@ const unique = (items: string[]): string[] =>
 
 const extractFeatures = (input: AlertRankingInput): ExtractedAlertRankingFeatures => ({
   volumeImpulse: readNumber(input.features, [["row", "volumeImpulse"]]),
+  confidenceScore: readNumber(input.features, [["row", "confidenceScore"]]),
+  signalStabilityScore: readNumber(input.features, [["row", "signalStabilityScore"]]),
+  signalVolatilityClass: readString(input.features, [["row", "signalVolatilityClass"]]),
+  marketRegime: readString(input.features, [["row", "marketRegime"]]),
   cvdSlope: readNumber(input.features, [["marketFlow", "cvd", "slope"]]),
   cvdDivergence: readString(input.features, [["marketFlow", "cvd", "divergence"]]),
   oiChange5m: readNumber(input.features, [["marketFlow", "openInterest", "oiChange5m"]]),
@@ -158,7 +166,9 @@ const countConfirmations = (
 export class AlertRankingEngine {
   rank(input: AlertRankingInput): AlertRankingResult {
     const features = extractFeatures(input);
-    const setupConfidencePct = normalizeConfidencePct(input.setupClassification.confidence);
+    const setupConfidencePct = clampScore(
+      features.confidenceScore ?? normalizeConfidencePct(input.setupClassification.confidence)
+    );
     const confirmations = countConfirmations(
       input.setupClassification.direction,
       features,
@@ -172,7 +182,12 @@ export class AlertRankingEngine {
       ...confirmations.tags
     ]);
 
+    const stability = features.signalStabilityScore ?? 0.5;
     const spreadBad = (features.spreadBps ?? 0) > 12;
+    const unstableHighVolatility =
+      features.signalVolatilityClass === "HIGH" && stability < 0.5;
+    const choppyWeakSignal =
+      features.marketRegime === "CHOP" && setupConfidencePct < 58;
     const liquidityBad =
       (features.quoteVolume24h !== null && features.quoteVolume24h > 0 && features.quoteVolume24h < 25_000_000) ||
       (features.tradeNotional60s !== null && features.tradeNotional60s < 25_000);
@@ -212,6 +227,16 @@ export class AlertRankingEngine {
       tags.add("spread_bad");
     }
 
+    if (unstableHighVolatility) {
+      reasons.push("signal stability is weak in high volatility");
+      tags.add("unstable_high_volatility");
+    }
+
+    if (choppyWeakSignal) {
+      reasons.push("signal confidence is weak for CHOP regime");
+      tags.add("chop_low_confidence");
+    }
+
     if (liquidityBad) {
       reasons.push("liquidity is too weak for priority alerting");
       tags.add("liquidity_bad");
@@ -223,7 +248,9 @@ export class AlertRankingEngine {
       unknownLowConfidence ||
       noisySignal ||
       spreadBad ||
-      liquidityBad
+      liquidityBad ||
+      unstableHighVolatility ||
+      choppyWeakSignal
     ) {
       const suppressReason = reasons[0] ?? "ignored by alert ranking rules";
 
@@ -243,6 +270,7 @@ export class AlertRankingEngine {
       input.doNotTrade.allowed === true &&
       input.opportunityScore.score >= 80 &&
       setupConfidencePct >= 75 &&
+      stability >= 0.62 &&
       input.positionSizing.recommendedNotional > 0 &&
       confirmations.count >= 2;
 
@@ -267,7 +295,8 @@ export class AlertRankingEngine {
       input.doNotTrade.allowed === true &&
       input.doNotTrade.action !== "BLOCK" &&
       input.opportunityScore.score >= 65 &&
-      setupConfidencePct >= 60;
+      setupConfidencePct >= 60 &&
+      stability >= 0.5;
 
     if (high) {
       reasons.push("strong actionable signal without DNT block");

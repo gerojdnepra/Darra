@@ -5,6 +5,10 @@ export type ScreenerAlertKind = "tape" | "liquidation" | "reviving_coin" | "risk
 export type AlertPriority = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "IGNORE";
 export type ScreenerAlertLiveVisibility = "PRIMARY" | "REVIEW" | "HIDDEN";
 export type ScreenerAlertNoiseClass = "ACTIONABLE" | "CONTEXT" | "NOISE";
+export type SignalVolatilityClass = "LOW" | "MID" | "HIGH";
+export type SignalDecayRate = "FAST" | "MEDIUM" | "SLOW";
+export type MarketRegime = "TREND" | "CHOP" | "LIQUIDATION_SPIKE" | "BREAKOUT";
+export type DecisionStrength = "WEAK" | "NORMAL" | "STRONG";
 
 export type SortKey =
   | "score"
@@ -191,6 +195,13 @@ export interface ScreenerAlert {
   rankScore?: number;
   suppress?: boolean;
   suppressReason?: string;
+  confidenceScore?: number;
+  signalStabilityScore?: number;
+  signalVolatilityClass?: SignalVolatilityClass;
+  signalDecayRate?: SignalDecayRate;
+  marketRegime?: MarketRegime;
+  decisionQualityScore?: number;
+  decisionStrength?: DecisionStrength;
   ttlSec?: number;
   tags?: string[];
   liveVisibility?: ScreenerAlertLiveVisibility;
@@ -226,6 +237,13 @@ export interface UnifiedSignalEvent {
   rankScore?: number;
   suppress?: boolean;
   suppressReason?: string;
+  confidenceScore?: number;
+  signalStabilityScore?: number;
+  signalVolatilityClass?: SignalVolatilityClass;
+  signalDecayRate?: SignalDecayRate;
+  marketRegime?: MarketRegime;
+  decisionQualityScore?: number;
+  decisionStrength?: DecisionStrength;
   ttlSec?: number;
   tags?: string[];
   liveVisibility?: "PRIMARY" | "REVIEW" | "HIDDEN";
@@ -251,6 +269,10 @@ export interface TradeDecisionContext {
   signalScore?: number | null;
   signalReason?: string | null;
   marketRegime?: string | null;
+  signalConfidence?: number;
+  signalStability?: number;
+  decisionStrength?: DecisionStrength;
+  decisionQualityScore?: number;
   riskSnapshotRef?: string | null;
   preflightId?: string | null;
   preflightNonce?: string | null;
@@ -474,6 +496,13 @@ export interface ScreenerRow {
   bias: Bias;
   riskScore: number;
   riskLevel: RiskLevel;
+  confidenceScore?: number;
+  signalStabilityScore?: number;
+  signalVolatilityClass?: SignalVolatilityClass;
+  signalDecayRate?: SignalDecayRate;
+  marketRegime?: MarketRegime;
+  decisionQualityScore?: number;
+  decisionStrength?: DecisionStrength;
   risk: RiskSymbolPayload;
   whyTrade?: ScreenerWhyTradeItem[];
   whyNotTrade?: ScreenerWhyNotTradeItem[];
@@ -1388,6 +1417,8 @@ export type OrderValidationCode =
   | "execution_mode"
   | "exchange_filters"
   | "client_order_id"
+  | "cancel_target_resolution"
+  | "cancel_risk_classification"
   | "market_price"
   | "max_order_notional"
   | "max_position_notional"
@@ -1711,7 +1742,7 @@ export interface OrderIntentMessage {
     preflightId?: string | null;
     preflightNonce?: string | null;
     unifiedSignalId?: string | null;
-    decisionContextId?: string | null;
+    decisionContextId: string | null;
     reviewCorrelationId?: string | null;
     action: OrderIntentAction;
     symbol?: string;
@@ -1744,6 +1775,8 @@ export interface RequestOrderPreflightMessage {
     quantity: number;
     price?: number | null;
     stopPrice?: number | null;
+    stopLossPrice?: number;
+    takeProfitPrice?: number;
     reduceOnly?: boolean;
     paperMode?: boolean;
     mode?: "PAPER" | "TESTNET_LIVE";
@@ -1769,10 +1802,61 @@ export interface OrderPreflightMessage {
   };
 }
 
+export type OrderPreflightStatus = "ACTIVE" | "USED" | "EXPIRED" | "INVALIDATED";
+
+export interface OrderPreflightRecord {
+  id: string;
+  requestId: string;
+  symbol: string;
+  side: OrderSide;
+  type: OrderType;
+  quantity: number;
+  normalizedQuantity?: number | null;
+  price?: number | null;
+  normalizedPrice?: number | null;
+  notional?: number | null;
+  decisionContextId?: string | null;
+  status: OrderPreflightStatus;
+  createdAt: number;
+  expiresAt: number;
+  usedAt?: number | null;
+  invalidatedAt?: number | null;
+  reason?: string | null;
+}
+
+export interface OrderPreflightPersistedMessage {
+  type: "order_preflight_persisted";
+  generatedAt: number;
+  payload: {
+    preflightId: string;
+    requestId: string;
+    ticketKey: string;
+    status: "ACTIVE";
+    createdAt: number;
+    expiresAt: number;
+  };
+}
+
+export interface OrderPreflightInvalidatedMessage {
+  type: "order_preflight_invalidated";
+  generatedAt: number;
+  payload: {
+    preflightId: string;
+    requestId?: string | null;
+    ticketKey?: string | null;
+    status: Exclude<OrderPreflightStatus, "ACTIVE">;
+    reason: string;
+    occurredAt: number;
+  };
+}
+
 export interface TradeDecisionContextCreatedMessage {
   type: "trade_decision_context_created";
   generatedAt: number;
-  payload: TradeDecisionContext;
+  payload: {
+    decisionContext: TradeDecisionContext;
+    legacy: true;
+  };
 }
 
 export interface TradeDecisionContextErrorMessage {
@@ -1783,6 +1867,23 @@ export interface TradeDecisionContextErrorMessage {
     code: string;
     message: string;
   };
+}
+
+export type DecisionContextResponseStatus = "ACCEPTED" | "REJECTED" | "FORCED_WAIT";
+export type DecisionContextSignalState = "OK" | "MISSING" | "STALE";
+
+export interface DecisionContextResponse {
+  status: DecisionContextResponseStatus;
+  decisionContext?: TradeDecisionContext;
+  reason?: string;
+  signalState: DecisionContextSignalState;
+  validationErrors: string[];
+}
+
+export interface DecisionContextResponseMessage {
+  type: "decision_context_response";
+  generatedAt: number;
+  payload: DecisionContextResponse;
 }
 
 export interface DecisionChainSnapshotMessage {
@@ -2214,20 +2315,10 @@ export interface RequestLearningReportMessage {
 export interface CreateTradeDecisionContextMessage {
   type: "create_trade_decision_context";
   payload: {
-    id?: string | null;
-    unifiedSignalId?: string | null;
     symbol: string;
-    decision: TradeDecisionAction;
-    decisionReason?: string | null;
-    riskSnapshotRef?: string | null;
+    intent: TradeDecisionAction;
+    notes?: string | null;
     preflightId?: string | null;
-    preflightNonce?: string | null;
-    orderIntentId?: string | null;
-    reviewCorrelationId?: string | null;
-    source?: TradeDecisionSource;
-    status?: TradeDecisionStatus;
-    createdAt?: number;
-    payload?: unknown;
   };
 }
 
@@ -2258,8 +2349,11 @@ export type ServerMessage =
   | JournalAutoEventMessage
   | PositionSizingMessage
   | OrderPreflightMessage
+  | OrderPreflightPersistedMessage
+  | OrderPreflightInvalidatedMessage
   | TradeDecisionContextCreatedMessage
   | TradeDecisionContextErrorMessage
+  | DecisionContextResponseMessage
   | PositionLifecycleCreatedMessage
   | PositionLifecycleUpdatedMessage
   | PositionLifecycleClosedMessage

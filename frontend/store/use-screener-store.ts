@@ -53,6 +53,7 @@ import type {
   DashboardPanelLayout,
   DashboardPanelId,
   CreateJournalEntryInput,
+  DecisionContextResponse,
   DecisionReplayPayload,
   InterfaceLanguage,
   JournalAnalyticsFilters,
@@ -610,6 +611,7 @@ interface ScreenerState {
   search: string;
   lastNotice: string;
   latestTradeDecisionContext: TradeDecisionContext | null;
+  latestDecisionContextResponse: DecisionContextResponse | null;
   pendingTradeDecisionContextId: string | null;
   tradeDecisionContextError: { id?: string | null; message: string } | null;
   setConnectionState: (value: ScreenerState["connectionState"]) => void;
@@ -749,6 +751,7 @@ export const useScreenerStore = create<ScreenerState>((set) => ({
   search: "",
   lastNotice: "waiting for backend",
   latestTradeDecisionContext: null,
+  latestDecisionContextResponse: null,
   pendingTradeDecisionContextId: null,
   tradeDecisionContextError: null,
   setConnectionState: (value) => {
@@ -1013,13 +1016,41 @@ export const useScreenerStore = create<ScreenerState>((set) => ({
 
       if (message.type === "trade_decision_context_created") {
         return {
-          latestTradeDecisionContext: message.payload,
-          pendingTradeDecisionContextId:
-            state.pendingTradeDecisionContextId === message.payload.id
-              ? null
-              : state.pendingTradeDecisionContextId,
+          lastNotice: message.payload.legacy
+            ? "Legacy decision context event ignored. Waiting for protocol response."
+            : state.lastNotice
+        };
+      }
+
+      if (message.type === "decision_context_response") {
+        if (message.payload.status === "REJECTED") {
+          return {
+            latestDecisionContextResponse: message.payload,
+            pendingTradeDecisionContextId: null,
+            tradeDecisionContextError: {
+              message:
+                message.payload.validationErrors[0] ??
+                message.payload.reason ??
+                "Decision context request rejected."
+            },
+            lastNotice:
+              message.payload.reason ??
+              message.payload.validationErrors[0] ??
+              "Decision context request rejected."
+          };
+        }
+
+        return {
+          latestDecisionContextResponse: message.payload,
+          latestTradeDecisionContext: message.payload.decisionContext ?? state.latestTradeDecisionContext,
+          pendingTradeDecisionContextId: null,
           tradeDecisionContextError: null,
-          lastNotice: `Decision context ${message.payload.decision} saved for ${message.payload.symbol}.`
+          lastNotice:
+            message.payload.status === "FORCED_WAIT"
+              ? `Decision forced to WAIT: ${message.payload.reason ?? message.payload.signalState}.`
+              : message.payload.decisionContext
+                ? `Decision context ${message.payload.decisionContext.decision} saved for ${message.payload.decisionContext.symbol}.`
+                : "Decision context response received."
         };
       }
 

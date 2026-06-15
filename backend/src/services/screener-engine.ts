@@ -22,13 +22,21 @@ import type {
   BackendSettings,
   Bias,
   ScreenerAlert,
+  DecisionStrength,
+  MarketRegime,
   MiniCandle,
   MiniCandleSeries,
   ScreenerOverview,
   ScreenerRow,
+  SignalDecayRate,
+  SignalVolatilityClass,
   UnifiedSignalEvent,
   VolumeMilestoneEvent
 } from "../types/messages";
+import {
+  computeDecisionQualityScore,
+  resolveDecisionStrength
+} from "../decision/decision-normalizer";
 import type {
   FlowDirectionalBias,
   RiskCorrelationCluster,
@@ -91,6 +99,16 @@ interface CorrelationContext {
   rowPayloads: Map<string, RiskCorrelationRowPayload>;
   clusters: RiskCorrelationCluster[];
   maxAbsCorrelation: number;
+}
+
+interface SignalEnrichment {
+  confidenceScore: number;
+  signalStabilityScore: number;
+  signalVolatilityClass: SignalVolatilityClass;
+  signalDecayRate: SignalDecayRate;
+  marketRegime: MarketRegime;
+  decisionQualityScore: number;
+  decisionStrength: DecisionStrength;
 }
 
 export interface ScreenerMarketRiskSnapshot {
@@ -189,6 +207,28 @@ const withAlertRankingContract = (
     normalizedAlert.suppressReason = suppressReason;
   }
 
+  if (typeof alert.confidenceScore === "number" && Number.isFinite(alert.confidenceScore)) {
+    normalizedAlert.confidenceScore = round(clamp(alert.confidenceScore, 0, 100), 2);
+  }
+  if (typeof alert.signalStabilityScore === "number" && Number.isFinite(alert.signalStabilityScore)) {
+    normalizedAlert.signalStabilityScore = round(clamp(alert.signalStabilityScore, 0, 1), 4);
+  }
+  if (alert.signalVolatilityClass) {
+    normalizedAlert.signalVolatilityClass = alert.signalVolatilityClass;
+  }
+  if (alert.signalDecayRate) {
+    normalizedAlert.signalDecayRate = alert.signalDecayRate;
+  }
+  if (alert.marketRegime) {
+    normalizedAlert.marketRegime = alert.marketRegime;
+  }
+  if (typeof alert.decisionQualityScore === "number" && Number.isFinite(alert.decisionQualityScore)) {
+    normalizedAlert.decisionQualityScore = round(clamp(alert.decisionQualityScore, 0, 100), 2);
+  }
+  if (alert.decisionStrength) {
+    normalizedAlert.decisionStrength = alert.decisionStrength;
+  }
+
   if (normalizedAlert.suppress === true) {
     normalizedAlert.liveVisibility = "HIDDEN";
     normalizedAlert.noiseClass = "NOISE";
@@ -236,6 +276,13 @@ export const buildUnifiedSignalFromAlert = (alert: ScreenerAlert): UnifiedSignal
     ...(rankScore !== undefined ? { rankScore } : {}),
     ...(suppress !== undefined ? { suppress } : {}),
     ...(alert.suppressReason ? { suppressReason: alert.suppressReason } : {}),
+    ...(typeof alert.confidenceScore === "number" ? { confidenceScore: alert.confidenceScore } : {}),
+    ...(typeof alert.signalStabilityScore === "number" ? { signalStabilityScore: alert.signalStabilityScore } : {}),
+    ...(alert.signalVolatilityClass ? { signalVolatilityClass: alert.signalVolatilityClass } : {}),
+    ...(alert.signalDecayRate ? { signalDecayRate: alert.signalDecayRate } : {}),
+    ...(alert.marketRegime ? { marketRegime: alert.marketRegime } : {}),
+    ...(typeof alert.decisionQualityScore === "number" ? { decisionQualityScore: alert.decisionQualityScore } : {}),
+    ...(alert.decisionStrength ? { decisionStrength: alert.decisionStrength } : {}),
     ...(ttlSec !== undefined ? { ttlSec, expiresAt: alert.createdAt + ttlSec * 1000 } : {}),
     ...(Array.isArray(alert.tags) ? { tags: alert.tags } : {}),
     ...(alert.liveVisibility ? { liveVisibility: alert.liveVisibility } : {}),
@@ -695,6 +742,7 @@ export class ScreenerEngine {
     const riskScoreApplyStartedAt = Date.now();
     const rows = baseRows
       .map((row) => this.applyCorrelationToRow(row, correlationContext))
+      .map((row) => this.applySignalEnrichmentToRow(row))
       .map((row) => this.applyRiskScoreToRow(row))
       .map((row) => this.applyWhyTradeToRow(row));
     rawAssemblyDiagnostics.rawRiskScoreApplyMs = Date.now() - riskScoreApplyStartedAt;
@@ -1078,6 +1126,13 @@ export class ScreenerEngine {
       bias,
       riskScore: 0,
       riskLevel: "LOW",
+      confidenceScore: 0,
+      signalStabilityScore: 0,
+      signalVolatilityClass: "LOW",
+      signalDecayRate: "MEDIUM",
+      marketRegime: "CHOP",
+      decisionQualityScore: 0,
+      decisionStrength: "WEAK",
       risk: riskPayload,
       tags,
       isFocus: focusSet.has(state.symbol),
@@ -1351,6 +1406,108 @@ export class ScreenerEngine {
     };
   }
 
+  private buildSignalEnrichment(row: Pick<
+    ScreenerRow,
+    | "bias"
+    | "momentum30sPct"
+    | "momentum2mPct"
+    | "volumeImpulse"
+    | "tradeNotional60s"
+    | "liquidation5m"
+    | "liquidationBias"
+    | "spreadBps"
+    | "score"
+  >): SignalEnrichment {
+    const biasDirection = row.bias === "LONG" ? 1 : row.bias === "SHORT" ? -1 : 0;
+    const momentum30Direction = Math.sign(row.momentum30sPct);
+    const momentum2mDirection = Math.sign(row.momentum2mPct);
+    const momentumAligned =
+      biasDirection !== 0 &&
+      momentum30Direction === biasDirection &&
+      momentum2mDirection === biasDirection;
+    const momentumMixed =
+      biasDirection !== 0 &&
+      (momentum30Direction === biasDirection || momentum2mDirection === biasDirection);
+    const momentumConsistency = momentumAligned ? 1 : momentumMixed ? 0.62 : 0.25;
+    const volumeImpulseStability = clamp(1 - Math.abs(row.volumeImpulse - 1.8) / 4, 0, 1);
+    const liquidationConfirmation =
+      row.liquidation5m >= 250_000 &&
+      ((row.bias === "LONG" && row.liquidationBias === "SHORTS_HIT") ||
+        (row.bias === "SHORT" && row.liquidationBias === "LONGS_HIT"))
+        ? 1
+        : row.liquidation5m >= 250_000
+          ? 0.55
+          : 0.35;
+    const spreadQuality = clamp(1 - (row.spreadBps ?? 0) / 14, 0, 1);
+    const signalStabilityScore = round(
+      clamp(
+        momentumConsistency * 0.42 +
+          volumeImpulseStability * 0.28 +
+          liquidationConfirmation * 0.18 +
+          spreadQuality * 0.12,
+        0,
+        1
+      ),
+      4
+    );
+    const confidenceScore = round(
+      clamp(
+        row.score * 0.42 +
+          momentumConsistency * 24 +
+          volumeImpulseStability * 14 +
+          liquidationConfirmation * 12 +
+          spreadQuality * 8,
+        0,
+        100
+      ),
+      2
+    );
+    const volatilityProxy =
+      Math.abs(row.momentum30sPct) * 0.55 +
+      Math.abs(row.momentum2mPct) * 0.35 +
+      Math.max(row.volumeImpulse - 1, 0) * 0.28 +
+      (row.spreadBps ?? 0) * 0.05;
+    const signalVolatilityClass: SignalVolatilityClass =
+      volatilityProxy >= 2.4 ? "HIGH" : volatilityProxy >= 0.95 ? "MID" : "LOW";
+    const signalDecayRate: SignalDecayRate =
+      signalVolatilityClass === "HIGH" || Math.abs(row.momentum30sPct) > Math.abs(row.momentum2mPct) * 1.8
+        ? "FAST"
+        : signalVolatilityClass === "LOW" && momentumAligned
+          ? "SLOW"
+          : "MEDIUM";
+    const marketRegime: MarketRegime =
+      row.liquidation5m >= 1_000_000
+        ? "LIQUIDATION_SPIKE"
+        : row.volumeImpulse >= 2.6 && row.tradeNotional60s >= 300_000
+          ? "BREAKOUT"
+          : momentumAligned && Math.abs(row.momentum2mPct) >= 0.35
+            ? "TREND"
+            : "CHOP";
+    const decisionQualityScore = computeDecisionQualityScore({
+      confidenceScore,
+      signalStabilityScore,
+      marketRegime,
+      signalVolatilityClass
+    });
+
+    return {
+      confidenceScore,
+      signalStabilityScore,
+      signalVolatilityClass,
+      signalDecayRate,
+      marketRegime,
+      decisionQualityScore,
+      decisionStrength: resolveDecisionStrength(decisionQualityScore)
+    };
+  }
+
+  private applySignalEnrichmentToRow(row: ScreenerRow): ScreenerRow {
+    return {
+      ...row,
+      ...this.buildSignalEnrichment(row)
+    };
+  }
+
   private applyWhyTradeToRow(row: ScreenerRow): ScreenerRow {
     const whyTrade: NonNullable<ScreenerRow["whyTrade"]> = [];
     const whyNotTrade: NonNullable<ScreenerRow["whyNotTrade"]> = [];
@@ -1541,6 +1698,13 @@ export class ScreenerEngine {
             )}x minute impulse`,
             severity: row.volumeImpulse >= 3 ? "critical" : "high",
             notionalUsd: row.tradeNotional60s,
+            confidenceScore: row.confidenceScore,
+            signalStabilityScore: row.signalStabilityScore,
+            signalVolatilityClass: row.signalVolatilityClass,
+            signalDecayRate: row.signalDecayRate,
+            marketRegime: row.marketRegime,
+            decisionQualityScore: row.decisionQualityScore,
+            decisionStrength: row.decisionStrength,
             createdAt: now
           },
           now
@@ -1558,6 +1722,13 @@ export class ScreenerEngine {
             reason: `liquidation sweep ${row.liquidationBias.toLowerCase().replace("_", " ")}`,
             severity: row.liquidation5m >= 1_000_000 ? "critical" : "high",
             notionalUsd: row.liquidation5m,
+            confidenceScore: row.confidenceScore,
+            signalStabilityScore: row.signalStabilityScore,
+            signalVolatilityClass: row.signalVolatilityClass,
+            signalDecayRate: row.signalDecayRate,
+            marketRegime: row.marketRegime,
+            decisionQualityScore: row.decisionQualityScore,
+            decisionStrength: row.decisionStrength,
             createdAt: now
           },
           now

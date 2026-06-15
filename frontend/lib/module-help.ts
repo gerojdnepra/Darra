@@ -30,30 +30,30 @@ export type ModuleHelpId =
 
 export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
   decisionDashboard: {
-    title: "Decision Dashboard",
-    shows: "A read-only state view for Signal, Decision, Execution, Positions, Review and Knowledge.",
-    why: "It makes the Decision OS chain visible before the supporting workspace panels.",
+    title: "Workflow Dashboard",
+    shows: "A read-only state view for Signal, Decision, Context, Execution, Positions, Review and Knowledge.",
+    why: "It makes the beta workflow visible before the supporting workspace panels.",
     interpret: "Read each card as current system readiness and evidence coverage.",
     ignore: "Ignore it as an execution surface; it can focus sections but never submits orders."
   },
   screener: {
     title: "Signal",
     shows: "Ranked symbols and signal context from the backend frame.",
-    why: "It is the Signal stage of the Decision Pipeline.",
+    why: "It is the Signal stage of the beta workflow.",
     interpret: "Use score, momentum, volume impulse, spread, liquidations and tags as evidence.",
     ignore: "Ignore rows with stale data, weak liquidity, wide spreads or no matching setup."
   },
   signalTape: {
-    title: "Decision Inbox",
+    title: "Decision",
     shows: "Recent alerts and unified signal events ready for ENTER, WAIT or SKIP.",
     why: "It is the Decision stage entry point after a signal becomes actionable.",
     interpret: "Use actionable, high-priority signals with flow and risk context.",
     ignore: "Ignore review/noise signals unless you are doing post-session analysis."
   },
   chart: {
-    title: "Chart",
-    shows: "A symbol-focused visual cockpit mock built from current backend fields.",
-    why: "It keeps price, flow and invalidation context in one central workspace.",
+    title: "Context",
+    shows: "A symbol-focused context view built from current backend fields.",
+    why: "It keeps price, flow and invalidation context together in one central workspace.",
     interpret: "Read zones as UI scaffolding until a real chart engine is added later.",
     ignore: "Ignore projected zones when the selected symbol has no fresh row data."
   },
@@ -116,15 +116,15 @@ export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
   activeTrades: {
     title: "Positions",
     shows: "Open live positions, paper positions, manual pins, lifecycle links and position risk context.",
-    why: "It is the primary post-execution management layer.",
+    why: "It is the Positions stage after execution.",
     interpret: "Read paper/live state, lifecycle/review links and backend risk context as one position workspace.",
     ignore: "Ignore it as an order-entry surface; paper close/cancel controls keep their existing confirmations."
   },
   account: {
-    title: "Execution Workspace",
-    shows: "Execution Ticket, Preflight State, Safe-To-Add State, Execution Readiness and the Account Workspace for connectivity.",
-    why: "Execution is its own Decision OS stage while Account stays limited to connectivity, permissions, balances and status.",
-    interpret: "Read the ticket and readiness summary before using the Account Workspace for connection status.",
+    title: "Execution",
+    shows: "Execution Ticket, Preflight State, Safe-To-Add State, Execution Readiness and account connectivity status.",
+    why: "Execution is its own workflow stage while account stays limited to connectivity, permissions, balances and status.",
+    interpret: "Read the ticket and readiness summary before using account status for connection health.",
     ignore: "Do not treat Account connectivity as order authorization; Execution Ticket and backend validation remain final."
   },
   feedHealth: {
@@ -156,16 +156,16 @@ export const moduleHelp: Record<ModuleHelpId, ModuleHelpContent> = {
     ignore: "Ignore it when the component says there is not enough data."
   },
   knowledgeWorkspace: {
-    title: "Trader Knowledge",
+    title: "Knowledge",
     shows: "Known links, unknown gaps, chain health, decision coverage, signal linkage, replay coverage, review completeness and playbook readiness.",
     why: "It makes system memory visible without coaching, recommendations or new calculations.",
     interpret: "Read it as what the system knows, what it does not know and how much history can be reconstructed.",
     ignore: "Ignore it for trade timing, order sizing or execution decisions."
   },
   replay: {
-    title: "Decision Replay",
+    title: "Replay",
     shows: "Historical signal, decision, order, position and review timeline.",
-    why: "It is a tool for reconstructing a Decision Review.",
+    why: "It is a tool for reconstructing a Review.",
     interpret: "Use timeline and chain events to inspect what was visible and what happened next.",
     ignore: "Ignore replay when no reviewId or positionLifecycleId is available."
   }

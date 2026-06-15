@@ -13,6 +13,7 @@ import type {
 import { getSqlite } from "./sqlite";
 
 type OrderIntentResponseMessage = OrderAckMessage | OrderRejectedMessage | OrderErrorMessage;
+const preSubmitOrderIntentRecordType = "order_intent_pre_submit" as const;
 
 export interface StoredOrderIntentResponse {
   intentId: string;
@@ -22,6 +23,32 @@ export interface StoredOrderIntentResponse {
   responseType: OrderIntentResponseMessage["type"];
   dryRun: boolean;
   response: OrderIntentResponseMessage;
+}
+
+export interface SavePreSubmitOrderIntentRecordInput {
+  intentId: string;
+  createdAt: number;
+  sourceWindowId: string | null;
+  orderId: string;
+  clientOrderId: string;
+  symbol: string;
+  side: OrderStatePayload["side"];
+  orderType: OrderStatePayload["orderType"];
+  quantity: number;
+  reduceOnly: boolean;
+  decisionContextId: string | null;
+  preflightId: string | null;
+  preflightNonce: string | null;
+  status: "PENDING_SUBMIT" | "INTENT_ACCEPTED_PRE_SUBMIT";
+  persistedAt: number;
+}
+
+export interface StoredPreSubmitOrderIntentRecord extends SavePreSubmitOrderIntentRecordInput {
+  responseType: typeof preSubmitOrderIntentRecordType;
+}
+
+export interface StoredOrderAuditEvent<T = unknown> extends OrderAuditEventPayload {
+  payload: T | null;
 }
 
 interface OrderRow {
@@ -75,12 +102,16 @@ interface OrderAuditRow {
   message: string | null;
 }
 
+interface StoredOrderAuditRow extends OrderAuditRow {
+  payload_json: string | null;
+}
+
 interface OrderIntentRow {
   intent_id: string;
   created_at: number;
   source_window_id: string | null;
   order_id: string | null;
-  response_type: OrderIntentResponseMessage["type"];
+  response_type: string;
   dry_run: number;
   response_json: string;
 }
@@ -1130,6 +1161,54 @@ export class OrderRepository {
     return rows.map(toPaperPosition);
   }
 
+  listActiveNonPaperOrders(limit = 100): OrderStatePayload[] {
+    const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            intent_id,
+            symbol,
+            side,
+            type,
+            quantity,
+            price,
+            stop_price,
+            stop_loss_price,
+            take_profit_price,
+            status,
+            client_order_id,
+            exchange_order_id,
+            source_window_id,
+            parent_order_id,
+            protective_kind,
+            dry_run,
+            reduce_only,
+            executed_qty,
+            avg_price,
+            last_filled_qty,
+            realized_pnl,
+            commission,
+            commission_asset,
+            last_execution_type,
+            last_trade_time,
+            reject_reason,
+            created_at,
+            updated_at,
+            last_event_source
+          FROM orders
+          WHERE dry_run = 0
+            AND status IN ('NEW', 'PARTIALLY_FILLED')
+          ORDER BY updated_at DESC
+          LIMIT ?
+        `
+      )
+      .all(normalizedLimit) as OrderRow[];
+
+    return rows.map(toOrderState);
+  }
+
   listRecentPaperPositions(limit = 100): PaperPositionPayload[] {
     const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
     const rows = this.db
@@ -1262,6 +1341,127 @@ export class OrderRepository {
       );
   }
 
+  savePreSubmitIntentRecord(record: SavePreSubmitOrderIntentRecordInput): void {
+    const response = {
+      type: preSubmitOrderIntentRecordType,
+      generatedAt: record.persistedAt,
+      payload: {
+        orderIntentId: record.intentId.trim(),
+        clientOrderId: record.clientOrderId,
+        orderId: record.orderId,
+        symbol: normalizeSymbol(record.symbol),
+        side: record.side,
+        orderType: record.orderType,
+        quantity: record.quantity,
+        reduceOnly: record.reduceOnly,
+        decisionContextId: normalizeText(record.decisionContextId),
+        preflightId: normalizeText(record.preflightId),
+        preflightNonce: normalizeText(record.preflightNonce),
+        status: record.status,
+        persistedAt: record.persistedAt
+      }
+    };
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO order_intents (
+            intent_id,
+            created_at,
+            source_window_id,
+            order_id,
+            response_type,
+            dry_run,
+            response_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(intent_id) DO UPDATE SET
+            created_at = excluded.created_at,
+            source_window_id = excluded.source_window_id,
+            order_id = excluded.order_id,
+            response_type = excluded.response_type,
+            dry_run = excluded.dry_run,
+            response_json = excluded.response_json
+        `
+      )
+      .run(
+        record.intentId.trim(),
+        record.createdAt,
+        normalizeText(record.sourceWindowId),
+        normalizeText(record.orderId),
+        preSubmitOrderIntentRecordType,
+        0,
+        JSON.stringify(response)
+      );
+  }
+
+  getPreSubmitIntentRecord(intentId: string): StoredPreSubmitOrderIntentRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            intent_id,
+            created_at,
+            source_window_id,
+            order_id,
+            response_type,
+            dry_run,
+            response_json
+          FROM order_intents
+          WHERE intent_id = ?
+          LIMIT 1
+        `
+      )
+      .get(intentId.trim()) as OrderIntentRow | undefined;
+
+    if (!row || row.response_type !== preSubmitOrderIntentRecordType) {
+      return null;
+    }
+
+    const response = parseJson<{
+      type?: string;
+      payload?: Partial<SavePreSubmitOrderIntentRecordInput> & {
+        orderIntentId?: string;
+      };
+    }>(row.response_json);
+    const payload = response?.payload;
+
+    if (!payload || response?.type !== preSubmitOrderIntentRecordType) {
+      return null;
+    }
+
+    return {
+      intentId: row.intent_id,
+      createdAt: row.created_at,
+      sourceWindowId: row.source_window_id,
+      orderId: row.order_id ?? "",
+      clientOrderId: String(payload.clientOrderId ?? ""),
+      symbol: normalizeSymbol(String(payload.symbol ?? "")),
+      side: payload.side === "SELL" ? "SELL" : "BUY",
+      orderType:
+        payload.orderType === "LIMIT" ||
+        payload.orderType === "STOP_MARKET" ||
+        payload.orderType === "TAKE_PROFIT_MARKET"
+          ? payload.orderType
+          : "MARKET",
+      quantity: typeof payload.quantity === "number" && Number.isFinite(payload.quantity)
+        ? payload.quantity
+        : 0,
+      reduceOnly: payload.reduceOnly === true,
+      decisionContextId: normalizeText(payload.decisionContextId),
+      preflightId: normalizeText(payload.preflightId),
+      preflightNonce: normalizeText(payload.preflightNonce),
+      status:
+        payload.status === "PENDING_SUBMIT"
+          ? "PENDING_SUBMIT"
+          : "INTENT_ACCEPTED_PRE_SUBMIT",
+      persistedAt:
+        typeof payload.persistedAt === "number" && Number.isFinite(payload.persistedAt)
+          ? payload.persistedAt
+          : row.created_at,
+      responseType: preSubmitOrderIntentRecordType
+    };
+  }
+
   getIntentResponse(intentId: string): StoredOrderIntentResponse | null {
     const row = this.db
       .prepare(
@@ -1285,6 +1485,10 @@ export class OrderRepository {
       return null;
     }
 
+    if (row.response_type === preSubmitOrderIntentRecordType) {
+      return null;
+    }
+
     const response = parseJson<OrderIntentResponseMessage>(row.response_json);
     if (!response) {
       return null;
@@ -1295,9 +1499,111 @@ export class OrderRepository {
       createdAt: row.created_at,
       sourceWindowId: row.source_window_id,
       orderId: row.order_id,
-      responseType: row.response_type,
+      responseType: response.type,
       dryRun: toBoolean(row.dry_run),
       response
+    };
+  }
+
+  findOrderAuditEventByIntentIdAndType<T = unknown>(
+    intentId: string,
+    eventType: string
+  ): StoredOrderAuditEvent<T> | null {
+    const normalizedIntentId = normalizeText(intentId);
+    const normalizedEventType = normalizeText(eventType);
+
+    if (!normalizedIntentId || !normalizedEventType) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            order_id,
+            intent_id,
+            timestamp,
+            symbol,
+            side,
+            type,
+            quantity,
+            price,
+            client_order_id,
+            status,
+            source_window_id,
+            dry_run,
+            event_type,
+            message,
+            payload_json
+          FROM order_audit_events
+          WHERE intent_id = ? AND event_type = ?
+          ORDER BY timestamp DESC
+          LIMIT 1
+        `
+      )
+      .get(normalizedIntentId, normalizedEventType) as StoredOrderAuditRow | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      ...toOrderAuditEvent(row),
+      payload: row.payload_json ? parseJson<T>(row.payload_json) : null
+    };
+  }
+
+  findRecentOrderAuditEventByFingerprint<T = unknown>(
+    eventType: string,
+    fingerprint: string,
+    sinceMs: number
+  ): StoredOrderAuditEvent<T> | null {
+    const normalizedEventType = normalizeText(eventType);
+    const normalizedFingerprint = normalizeText(fingerprint);
+    const sinceTimestamp = Date.now() - sinceMs;
+
+    if (!normalizedEventType || !normalizedFingerprint) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            order_id,
+            intent_id,
+            timestamp,
+            symbol,
+            side,
+            type,
+            quantity,
+            price,
+            client_order_id,
+            status,
+            source_window_id,
+            dry_run,
+            event_type,
+            message,
+            payload_json
+          FROM order_audit_events
+          WHERE event_type = ?
+            AND payload_json LIKE ?
+            AND timestamp >= ?
+          ORDER BY timestamp DESC
+          LIMIT 1
+        `
+      )
+      .get(normalizedEventType, `%"fingerprint":"${normalizedFingerprint}"%`, sinceTimestamp) as StoredOrderAuditRow | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      ...toOrderAuditEvent(row),
+      payload: row.payload_json ? parseJson<T>(row.payload_json) : null
     };
   }
 

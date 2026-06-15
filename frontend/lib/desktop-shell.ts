@@ -5,7 +5,11 @@ import type {
   ScreenerAlert,
   SignalBillboardPreferences
 } from "./types";
-import type { DesktopManagedModuleSectionId } from "./module-sections";
+import type {
+  DesktopManagedModuleSectionId,
+  DesktopScenarioWorkspaceId,
+  DesktopWorkspaceOpenMode
+} from "./module-sections";
 
 export type DesktopManagedWindowKey = "dashboard" | DesktopManagedModuleSectionId;
 export type DesktopSignalOverlayBias = Exclude<Bias, "NEUTRAL">;
@@ -45,11 +49,91 @@ export interface DesktopWindowSnapshot {
   } | null;
 }
 
+export type DesktopWindowGroupColor = "blue" | "green" | "amber" | "rose" | "violet" | "slate";
+export type DesktopWindowGroupContextMode = "shared" | "locked";
+
+export interface DesktopWindowGroup {
+  groupId: string;
+  label: string;
+  symbol: string | null;
+  color: DesktopWindowGroupColor;
+  contextMode: DesktopWindowGroupContextMode;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopWindowGroupsState {
+  groups: Record<string, DesktopWindowGroup>;
+  assignments: Record<DesktopManagedWindowKey, string | null>;
+}
+
+export interface DesktopCreateWindowGroupRequest {
+  label: string;
+  symbol?: string | null;
+  color?: DesktopWindowGroupColor;
+  contextMode?: DesktopWindowGroupContextMode;
+}
+
+export interface DesktopSavedLayoutWindowState {
+  open: boolean;
+  alwaysOnTop: boolean;
+  opacity: number;
+  displayId: number | null;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
+}
+
+export interface DesktopSavedLayoutSummary {
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  openWindowCount: number;
+}
+
+export interface DesktopSavedLayoutExport {
+  version: number;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  windows: Record<DesktopManagedWindowKey, DesktopSavedLayoutWindowState>;
+}
+
+export type DesktopMonitorRole = "primary" | "chart" | "execution" | "risk" | "review";
+
+export interface DesktopMonitorProfileRoleAssignment {
+  displayId: number | null;
+}
+
+export interface DesktopMonitorProfileSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  roles: Record<DesktopMonitorRole, DesktopMonitorProfileRoleAssignment>;
+  capturedDisplays: DesktopDisplaySnapshot[];
+}
+
+export interface DesktopMonitorProfileSaveRequest {
+  name: string;
+  roles: Record<DesktopMonitorRole, DesktopMonitorProfileRoleAssignment>;
+}
+
+export interface DesktopScenarioWorkspaceSummary {
+  id: DesktopScenarioWorkspaceId;
+  windows: DesktopManagedModuleSectionId[];
+  windowCount: number;
+}
+
 export interface DesktopShellState {
   frontendBaseUrl: string;
   backendWsUrl: string;
   interfaceLanguage: InterfaceLanguage;
   displays: DesktopDisplaySnapshot[];
+  windowGroups: DesktopWindowGroupsState;
   windows: DesktopWindowSnapshot[];
 }
 
@@ -92,6 +176,31 @@ export interface DesktopShellBridge {
   ) => Promise<DesktopShellState>;
   updateAlertMonitorSettings: (patch: DesktopAlertMonitorSettings) => Promise<void>;
   resetLayout: () => Promise<DesktopShellState>;
+  listWorkspaces: () => Promise<DesktopScenarioWorkspaceSummary[]>;
+  openWorkspace: (
+    id: DesktopScenarioWorkspaceId,
+    mode: DesktopWorkspaceOpenMode
+  ) => Promise<DesktopShellState>;
+  listLayouts: () => Promise<DesktopSavedLayoutSummary[]>;
+  saveCurrentLayout: (name: string) => Promise<DesktopSavedLayoutSummary[]>;
+  loadLayout: (name: string) => Promise<DesktopShellState>;
+  deleteLayout: (name: string) => Promise<DesktopSavedLayoutSummary[]>;
+  exportLayout: (name: string) => Promise<DesktopSavedLayoutExport>;
+  importLayout: (payload: string) => Promise<DesktopSavedLayoutSummary[]>;
+  listDisplays: () => Promise<DesktopDisplaySnapshot[]>;
+  listMonitorProfiles: () => Promise<DesktopMonitorProfileSummary[]>;
+  saveMonitorProfile: (
+    profile: DesktopMonitorProfileSaveRequest
+  ) => Promise<DesktopMonitorProfileSummary[]>;
+  applyMonitorProfile: (profileId: string) => Promise<DesktopShellState>;
+  listGroups: () => Promise<DesktopWindowGroupsState>;
+  createGroup: (payload: DesktopCreateWindowGroupRequest) => Promise<DesktopShellState>;
+  updateGroupSymbol: (groupId: string, symbol: string | null) => Promise<DesktopShellState>;
+  assignWindowToGroup: (
+    key: DesktopManagedWindowKey,
+    groupId: string
+  ) => Promise<DesktopShellState>;
+  unassignWindowFromGroup: (key: DesktopManagedWindowKey) => Promise<DesktopShellState>;
   showControlCenter: () => Promise<void>;
   showSignalOverlay: (payload: DesktopSignalOverlayRequest) => Promise<void>;
   hideSignalOverlay: () => Promise<void>;

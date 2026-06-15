@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
+import {
+  ExecutionContractValidator
+} from "../execution/execution-contract-validator";
 import type { PositionLifecycle, PositionLifecycleEvent } from "../types/messages";
 import { getSqlite } from "./sqlite";
 
@@ -28,6 +31,7 @@ export type PositionLifecycleEventType =
   | "ERROR";
 
 export interface CreatePositionLifecycleInput {
+  writerAuthority?: unknown;
   id?: string;
   symbol: string;
   orderIntentId?: string | null;
@@ -39,6 +43,7 @@ export interface CreatePositionLifecycleInput {
 }
 
 export interface UpdatePositionLifecycleInput {
+  writerAuthority?: unknown;
   id: string;
   status?: PositionLifecycleStatus;
   openedAt?: number | null;
@@ -47,6 +52,7 @@ export interface UpdatePositionLifecycleInput {
 }
 
 export interface AppendLifecycleEventInput {
+  writerAuthority?: unknown;
   lifecycleId: string;
   eventType: PositionLifecycleEventType;
   timestamp?: number;
@@ -176,9 +182,20 @@ const listLifecycleEventIds = (lifecycleId: string): string[] => {
 };
 
 export class PositionLifecycleRepository {
-  constructor(private readonly db: Database.Database = getSqlite()) {}
+  constructor(
+    private readonly db: Database.Database = getSqlite(),
+    private readonly contractValidator: ExecutionContractValidator = new ExecutionContractValidator()
+  ) {}
 
   createPositionLifecycle(input: CreatePositionLifecycleInput): PositionLifecycle {
+    this.contractValidator.assertLifecycleWriterAuthority(input.writerAuthority, {
+      operation: "createPositionLifecycle",
+      input: {
+        ...input,
+        writerAuthority: input.writerAuthority ? "provided" : "missing"
+      }
+    });
+
     const id = input.id ?? randomUUID();
     const symbol = normalizeSymbol(input.symbol);
     const now = Date.now();
@@ -235,6 +252,14 @@ export class PositionLifecycleRepository {
   }
 
   updatePositionLifecycle(input: UpdatePositionLifecycleInput): PositionLifecycle | null {
+    this.contractValidator.assertLifecycleWriterAuthority(input.writerAuthority, {
+      operation: "updatePositionLifecycle",
+      input: {
+        ...input,
+        writerAuthority: input.writerAuthority ? "provided" : "missing"
+      }
+    });
+
     const existing = this.getPositionLifecycleById(input.id);
 
     if (!existing) {
@@ -286,14 +311,21 @@ export class PositionLifecycleRepository {
   }
 
   closePositionLifecycle(input: {
+    writerAuthority?: unknown;
     id: string;
     closedAt?: number;
   }): PositionLifecycle | null {
-    return this.updatePositionLifecycle({
+    const updateInput: UpdatePositionLifecycleInput = {
       id: input.id,
       status: "CLOSED",
       closedAt: input.closedAt ?? Date.now()
-    });
+    };
+
+    if (input.writerAuthority !== undefined) {
+      updateInput.writerAuthority = input.writerAuthority;
+    }
+
+    return this.updatePositionLifecycle(updateInput);
   }
 
   getPositionLifecycleById(id: string): PositionLifecycle | null {
@@ -445,6 +477,14 @@ export class PositionLifecycleRepository {
   }
 
   appendLifecycleEvent(input: AppendLifecycleEventInput): PositionLifecycleEvent {
+    this.contractValidator.assertLifecycleWriterAuthority(input.writerAuthority, {
+      operation: "appendLifecycleEvent",
+      input: {
+        ...input,
+        writerAuthority: input.writerAuthority ? "provided" : "missing"
+      }
+    });
+
     const id = randomUUID();
     const lifecycleId = normalizeText(input.lifecycleId);
     const timestamp = input.timestamp ?? Date.now();

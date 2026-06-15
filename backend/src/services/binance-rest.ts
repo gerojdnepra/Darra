@@ -487,6 +487,28 @@ export const cancelFuturesOrder = async (
   });
 };
 
+export const getFuturesOrder = async (
+  restBase: string,
+  apiKey: string,
+  apiSecret: string,
+  params: {
+    symbol: string;
+    origClientOrderId: string;
+  }
+): Promise<RestFuturesOrder> => {
+  const serverTime = await fetchServerTime(restBase);
+  const query = buildSignedQuery(apiSecret, {
+    symbol: params.symbol,
+    origClientOrderId: params.origClientOrderId,
+    recvWindow: 5_000,
+    timestamp: serverTime
+  });
+
+  return requestJson<RestFuturesOrder>(`${restBase}/fapi/v1/order?${query}`, {
+    headers: userStreamHeaders(apiKey)
+  });
+};
+
 export const getOpenOrders = async (
   restBase: string,
   apiKey: string,

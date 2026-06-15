@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import DesktopDarraTerminalPage from "../desktopdaraterminal/page";
+import { DesktopControlCenter } from "@/components/desktop-control-center";
 
 export const metadata: Metadata = {
-  title: "Darra Terminal"
+  title: "Darra Window Manager"
 };
 
 export default function DesktopControlPage() {
-  return <DesktopDarraTerminalPage />;
+  return <DesktopControlCenter />;
 }

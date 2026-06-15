@@ -5,10 +5,11 @@
   "description": "Windows desktop shell for Darra Terminal",
   "main": "main.cjs",
   "scripts": {
+    "check:desktop-window-registry": "node scripts/check-desktop-window-registry.mjs",
     "prepare:bundles": "node scripts/prepare-bundles.mjs",
     "dev": "npm run prepare:bundles && electron .",
-    "package:folder": "npm run prepare:bundles && node scripts/package-folder.mjs",
-    "package:dir": "npm run prepare:bundles && node scripts/package-folder.mjs",
+    "package:folder": "node scripts/package-folder.mjs",
+    "package:dir": "node scripts/package-folder.mjs",
     "package:portable": "npm run prepare:bundles && electron-builder --win portable"
   },
   "build": {

@@ -465,7 +465,7 @@ export function ChartPanel({
         <div className="flex min-h-[420px] items-center justify-center rounded-lg border border-dashed border-white/10 bg-black/20 p-6 text-center">
           <div>
             <div className="text-sm font-semibold text-slate-200">
-              Select a symbol from Screener or Decision Inbox
+              Select a symbol from Signal or Decision
             </div>
             <div className="mt-2 text-xs text-slate-500">
               The chart, flow strips and decision context will follow that symbol.
@@ -648,7 +648,7 @@ export function ChartPanel({
         </div>
         <button
           type="button"
-          title="Chart edits execution levels only. Orders are sent only from Execution Workspace."
+          title="Chart edits execution levels only. Orders are sent only from Execution."
           className="rounded-full border border-caution/25 bg-caution/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-caution"
         >
           Ticket only
@@ -1040,7 +1040,7 @@ export function ChartPanel({
               </button>
             </div>
             <div className="mt-2 text-[10px] leading-4 text-slate-500">
-              Chart edits execution levels only. Orders are sent only from Execution Workspace.
+              Chart edits execution levels only. Orders are sent only from Execution.
             </div>
           </div>
         ) : null}
@@ -1125,7 +1125,7 @@ function ExecutionLegend({ context }: { context: ChartExecutionContext | null | 
   if (!context?.ticket && !context?.position) {
     return (
       <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-500">
-        Execution/position levels will appear here when the selected chart symbol matches the Execution Workspace or a position.
+        Execution/position levels will appear here when the selected chart symbol matches Execution or a position.
       </div>
     );
   }
@@ -1296,7 +1296,7 @@ function PanelShell({ subtitle, children, learningMode }: { subtitle: string; ch
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-            Chart Panel
+            Context
           </h2>
           <p className="text-xs text-slate-500">{subtitle}</p>
         </div>

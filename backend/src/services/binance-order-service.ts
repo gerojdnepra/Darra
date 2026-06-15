@@ -1,21 +1,19 @@
 import { randomUUID } from "node:crypto";
+import { ExecutionFacade } from "../execution/execution-facade";
 import { safeNumber } from "../lib/math";
 import { evaluateLiveReadiness } from "../safety/live-readiness";
 import {
   evaluateClientOrderIdSafety,
-  evaluateOrderRiskSafety,
   evaluateReduceOnlyPositionSafety,
   isTerminalOrderStatus
 } from "../safety/order-safety";
+import { evaluateRiskAuthorityOrder } from "../risk/risk-authority";
 import {
   orderRepository,
-  type StoredOrderIntentResponse
+  type StoredOrderIntentResponse,
+  type StoredPreSubmitOrderIntentRecord
 } from "../storage/order-repository";
-import { decisionReviewRepository } from "../storage/decision-review-repository";
-import {
-  PositionLifecycleRepository,
-  type PositionLifecycleEventType
-} from "../storage/position-lifecycle-repository";
+import { orderPreflightRepository } from "../storage/order-preflight-repository";
 import { tradeDecisionRepository } from "../storage/trade-decision-repository";
 import type { OrderTradeUpdateEvent } from "../types/binance";
 import type { RestFuturesOrder } from "../types/binance";
@@ -25,6 +23,8 @@ import type {
   OrderErrorMessage,
   OrderIntentMessage,
   OrderLifecycleStatus,
+  OrderPreflightInvalidatedMessage,
+  OrderPreflightPersistedMessage,
   PaperPositionClosedMessage,
   PaperPositionOpenedMessage,
   PaperPositionPayload,
@@ -41,6 +41,7 @@ import type {
   PositionLifecycleClosedMessage,
   PositionLifecycleCreatedMessage,
   PositionLifecycleEventMessage,
+  PositionLifecycleEventType,
   PositionLifecycleUpdatedMessage,
   RequestOrderPreflightMessage,
   ScreenerRow
@@ -53,7 +54,9 @@ import {
 } from "./binance-exchange-filters";
 import {
   cancelFuturesOrder,
+  fetchPositionRiskSnapshot,
   getCachedLeverageBrackets,
+  getFuturesOrder,
   getOpenOrders,
   getPositionRisk,
   placeFuturesOrder
@@ -62,6 +65,10 @@ import type {
   AccountStreamHealth,
   BinanceAccountRiskSnapshot
 } from "./binance-account-stream";
+import type {
+  RestPositionRiskV3
+} from "../types/binance";
+import type { ExecutionCommand } from "../execution/types";
 
 type OrderServerMessage =
   | OrderAckMessage
@@ -75,7 +82,9 @@ type OrderServerMessage =
   | PositionLifecycleCreatedMessage
   | PositionLifecycleUpdatedMessage
   | PositionLifecycleClosedMessage
-  | PositionLifecycleEventMessage;
+  | PositionLifecycleEventMessage
+  | OrderPreflightPersistedMessage
+  | OrderPreflightInvalidatedMessage;
 
 interface OrderIntentContext {
   account: BinanceAccountRiskSnapshot;
@@ -97,6 +106,7 @@ interface BinanceOrderServiceOptions {
   wsBase?: string;
   orderControlAuthRequired?: boolean;
   orderControlToken?: string;
+  skipStartupRecovery?: boolean;
   liveRiskLimits?: {
     maxOrderNotionalUsdt: { enabled: boolean; value: number | null };
     maxPositionNotionalUsdt: { enabled: boolean; value: number | null };
@@ -146,14 +156,43 @@ interface NormalizedPlaceIntent extends NormalizedIntentMeta {
   reduceOnly: boolean;
 }
 
+interface CanonicalPreflightPayload {
+  paperMode: boolean;
+  symbol: string;
+  side: OrderStatePayload["side"];
+  orderType: OrderStatePayload["orderType"];
+  quantity: number;
+  price: number | null;
+  stopPrice: number | null;
+  stopLossPrice: number | null;
+  takeProfitPrice: number | null;
+  reduceOnly: boolean;
+}
+
 interface BoundPreflightRecord {
   preflightId: string;
   preflightNonce: string;
+  requestId: string;
   ticketKey: string;
   paperMode: boolean;
   generatedAt: number;
   expiresAt: number;
   safeToAddStatus: "ALLOW" | "WAIT" | "STALE" | "BLOCK";
+  canonicalPayload: CanonicalPreflightPayload | null;
+  lockedIntentId: string | null;
+  lockedAt: number | null;
+}
+
+interface BindPreflightInput {
+  preflightId: string;
+  preflightNonce: string;
+  requestId: string;
+  ticketKey: string;
+  paperMode: boolean;
+  generatedAt: number;
+  expiresAt: number;
+  safeToAddStatus: "ALLOW" | "WAIT" | "STALE" | "BLOCK";
+  payload: RequestOrderPreflightMessage["payload"];
 }
 
 interface NormalizedCancelIntent extends NormalizedIntentMeta {
@@ -168,6 +207,104 @@ interface NormalizedClosePaperPositionIntent extends NormalizedIntentMeta {
   symbol: string;
   quantity: number | null;
 }
+
+type CancelRiskClassification =
+  | "ENTRY_PENDING_RISK_REDUCING"
+  | "PROTECTIVE_OR_RISK_INCREASING"
+  | "TERMINAL_OR_INVALID"
+  | "UNKNOWN_RISK";
+
+interface CancelTargetResolution {
+  order: OrderStatePayload | null;
+  classification: CancelRiskClassification;
+  reason: string;
+  targetOrderId: string | null;
+  targetClientOrderId: string | null;
+}
+
+type LiveLifecycleClosureDecision = "CAN_CLOSE" | "CANNOT_CLOSE" | "AMBIGUOUS";
+
+interface LiveLifecycleClosureEvaluation {
+  decision: LiveLifecycleClosureDecision;
+  reason: string;
+  timestamp: number;
+  lifecycleId: string;
+  orderIntentId: string | null;
+  relatedLocalOrderCount: number | null;
+  matchingExchangeOpenOrderCount: number;
+  sameSymbolUnmatchedExchangeOpenOrderCount: number;
+  positionAmt: number | null;
+  positionSide: RestPositionRiskV3["positionSide"] | null;
+  matchMethod: "orderIntentId" | null;
+}
+
+interface EvaluateLiveLifecycleClosureInput {
+  lifecycle: PositionLifecycle;
+  relatedLocalOrders: OrderStatePayload[] | null;
+  exchangeOpenOrders: RestFuturesOrder[];
+  exchangePositions: RestPositionRiskV3[] | null;
+  timestamp: number;
+}
+
+interface LiveLifecycleClosureApplyResult {
+  closed: boolean;
+  markerType: string | null;
+  skippedDuplicate: boolean;
+  error: string | null;
+}
+
+const canonicalPreflightPayloadFields = [
+  "paperMode",
+  "symbol",
+  "side",
+  "orderType",
+  "quantity",
+  "price",
+  "stopPrice",
+  "stopLossPrice",
+  "takeProfitPrice",
+  "reduceOnly"
+] as const satisfies ReadonlyArray<keyof CanonicalPreflightPayload>;
+
+const buildCanonicalPreflightPayload = (
+  intent: Pick<
+    NormalizedPlaceIntent,
+    | "paperMode"
+    | "symbol"
+    | "side"
+    | "orderType"
+    | "quantity"
+    | "price"
+    | "stopPrice"
+    | "stopLossPrice"
+    | "takeProfitPrice"
+    | "reduceOnly"
+  >
+): CanonicalPreflightPayload => ({
+  paperMode: intent.paperMode,
+  symbol: intent.symbol,
+  side: intent.side,
+  orderType: intent.orderType,
+  quantity: intent.quantity,
+  price: intent.price,
+  stopPrice: intent.stopPrice,
+  stopLossPrice: intent.stopLossPrice,
+  takeProfitPrice: intent.takeProfitPrice,
+  reduceOnly: intent.reduceOnly
+});
+
+const findCanonicalPreflightPayloadMismatch = (
+  bound: CanonicalPreflightPayload,
+  submitPayload: CanonicalPreflightPayload
+): keyof CanonicalPreflightPayload | null => {
+  for (const field of canonicalPreflightPayloadFields) {
+    if (bound[field] !== submitPayload[field]) {
+      return field;
+    }
+  }
+
+  return null;
+};
 
 const DEFAULT_ORDER_RISK_LIMITS: OrderRiskLimits = {
   maxPositionSize: {
@@ -187,8 +324,6 @@ const DEFAULT_ORDER_RISK_LIMITS: OrderRiskLimits = {
     value: null
   }
 };
-
-const positionLifecycleRepository = new PositionLifecycleRepository();
 
 const normalizeText = (value: string | null | undefined): string | null => {
   const normalized = value?.trim();
@@ -216,6 +351,266 @@ const formatOrderPrice = (value: number): string =>
 const flipOrderSide = (
   side: OrderStatePayload["side"]
 ): OrderStatePayload["side"] => (side === "BUY" ? "SELL" : "BUY");
+
+const parseExchangePositionAmt = (position: RestPositionRiskV3): number | null => {
+  const rawPositionAmt = position.positionAmt.trim();
+  if (!rawPositionAmt) {
+    return null;
+  }
+
+  const parsedPositionAmt = Number(rawPositionAmt);
+  return Number.isFinite(parsedPositionAmt) ? parsedPositionAmt : null;
+};
+
+const buildFlatPositionRisk = (symbol: string): RestPositionRiskV3 => ({
+  symbol,
+  positionSide: "BOTH",
+  positionAmt: "0",
+  entryPrice: "0",
+  breakEvenPrice: "0",
+  markPrice: "0",
+  unRealizedProfit: "0",
+  liquidationPrice: "0",
+  isolatedMargin: "0",
+  notional: "0",
+  marginAsset: "USDT",
+  isolatedWallet: "0",
+  initialMargin: "0",
+  maintMargin: "0",
+  positionInitialMargin: "0",
+  openOrderInitialMargin: "0",
+  adl: 0,
+  bidNotional: "0",
+  askNotional: "0",
+  updateTime: 0
+});
+
+const exchangeOrderIdText = (order: RestFuturesOrder): string | null =>
+  Number.isFinite(order.orderId) ? String(order.orderId) : null;
+
+const isActiveRelatedLocalOrder = (order: OrderStatePayload): boolean =>
+  order.status === "NEW" || order.status === "PARTIALLY_FILLED";
+
+const isProtectiveOrReduceOnlyLocalOrder = (order: OrderStatePayload): boolean =>
+  order.protectiveKind !== null || order.reduceOnly;
+
+const isProtectiveOrReduceOnlyExchangeOrder = (order: RestFuturesOrder): boolean =>
+  Boolean(order.reduceOnly) ||
+  order.type === "STOP" ||
+  order.type === "STOP_MARKET" ||
+  order.type === "TAKE_PROFIT" ||
+  order.type === "TAKE_PROFIT_MARKET";
+
+const evaluateLiveLifecycleClosure = (
+  input: EvaluateLiveLifecycleClosureInput
+): LiveLifecycleClosureEvaluation => {
+  const lifecycle = input.lifecycle;
+  const orderIntentId = normalizeText(lifecycle.orderIntentId);
+  const lifecycleSymbol = normalizeSymbol(lifecycle.symbol);
+  const relatedLocalOrderCount = input.relatedLocalOrders?.length ?? null;
+
+  const finish = (
+    decision: LiveLifecycleClosureDecision,
+    reason: string,
+    evidence: Pick<
+      LiveLifecycleClosureEvaluation,
+      | "matchingExchangeOpenOrderCount"
+      | "sameSymbolUnmatchedExchangeOpenOrderCount"
+      | "positionAmt"
+      | "positionSide"
+    > = {
+      matchingExchangeOpenOrderCount: 0,
+      sameSymbolUnmatchedExchangeOpenOrderCount: 0,
+      positionAmt: null,
+      positionSide: null
+    }
+  ): LiveLifecycleClosureEvaluation => ({
+    decision,
+    reason,
+    timestamp: input.timestamp,
+    lifecycleId: lifecycle.id,
+    orderIntentId,
+    relatedLocalOrderCount,
+    matchingExchangeOpenOrderCount: evidence.matchingExchangeOpenOrderCount,
+    sameSymbolUnmatchedExchangeOpenOrderCount: evidence.sameSymbolUnmatchedExchangeOpenOrderCount,
+    positionAmt: evidence.positionAmt,
+    positionSide: evidence.positionSide,
+    matchMethod: orderIntentId ? "orderIntentId" : null
+  });
+
+  if (
+    lifecycle.status === "CLOSED" ||
+    lifecycle.status === "CLOSING" ||
+    lifecycle.status === "REJECTED" ||
+    lifecycle.status === "ERROR"
+  ) {
+    return finish("CANNOT_CLOSE", "Lifecycle is already terminal or closing.");
+  }
+
+  if (lifecycle.status !== "OPEN" && lifecycle.status !== "MANAGING") {
+    return finish("AMBIGUOUS", "Lifecycle is not OPEN or MANAGING.");
+  }
+
+  if (!orderIntentId) {
+    return finish("AMBIGUOUS", "lifecycle.orderIntentId is required for closure evaluation.");
+  }
+
+  if (input.relatedLocalOrders === null) {
+    return finish("AMBIGUOUS", "Related order chain cannot be loaded.");
+  }
+
+  if (input.relatedLocalOrders.length === 0) {
+    return finish(
+      "AMBIGUOUS",
+      "Exchange/lifecycle evidence is symbol-only without an orderIntentId chain."
+    );
+  }
+
+  const rootRelatedOrders = input.relatedLocalOrders.filter(
+    (order) => normalizeText(order.intentId) === orderIntentId && normalizeText(order.parentOrderId) === null
+  );
+
+  if (rootRelatedOrders.length !== 1) {
+    return finish("AMBIGUOUS", "Multiple possible lifecycle/order matches for orderIntentId.");
+  }
+
+  if (input.relatedLocalOrders.some((order) => normalizeSymbol(order.symbol) !== lifecycleSymbol)) {
+    return finish("AMBIGUOUS", "Related order chain contains a different symbol.");
+  }
+
+  if (input.exchangePositions === null) {
+    return finish("AMBIGUOUS", "Exchange position evidence is missing or unknown.");
+  }
+
+  const symbolPositions = input.exchangePositions.filter(
+    (position) => normalizeSymbol(position.symbol) === lifecycleSymbol
+  );
+
+  if (symbolPositions.length === 0) {
+    return finish("AMBIGUOUS", "Exchange position evidence is missing or unknown.");
+  }
+
+  for (const position of symbolPositions) {
+    const parsedPositionAmt = parseExchangePositionAmt(position);
+    if (parsedPositionAmt === null) {
+      return finish("AMBIGUOUS", "Exchange positionAmt is missing or unknown.", {
+        matchingExchangeOpenOrderCount: 0,
+        sameSymbolUnmatchedExchangeOpenOrderCount: 0,
+        positionAmt: null,
+        positionSide: position.positionSide
+      });
+    }
+
+    if (parsedPositionAmt !== 0) {
+      return finish("CANNOT_CLOSE", "Exchange positionAmt is not zero.", {
+        matchingExchangeOpenOrderCount: 0,
+        sameSymbolUnmatchedExchangeOpenOrderCount: 0,
+        positionAmt: parsedPositionAmt,
+        positionSide: position.positionSide
+      });
+    }
+  }
+
+  if (symbolPositions.length !== 1) {
+    return finish("AMBIGUOUS", "Hedge positionSide cannot be resolved for lifecycle closure.");
+  }
+
+  const exchangePosition = symbolPositions[0];
+  if (!exchangePosition || exchangePosition.positionSide !== "BOTH") {
+    return finish("AMBIGUOUS", "Hedge positionSide cannot be resolved for lifecycle closure.");
+  }
+
+  const activeProtectiveRelatedOrders = input.relatedLocalOrders.filter(
+    (order) => isActiveRelatedLocalOrder(order) && isProtectiveOrReduceOnlyLocalOrder(order)
+  );
+  if (activeProtectiveRelatedOrders.length > 0) {
+    return finish("CANNOT_CLOSE", "Active protective/reduceOnly related local order blocks closure.", {
+      matchingExchangeOpenOrderCount: 0,
+      sameSymbolUnmatchedExchangeOpenOrderCount: 0,
+      positionAmt: 0,
+      positionSide: exchangePosition.positionSide
+    });
+  }
+
+  const activeRelatedLocalOrders = input.relatedLocalOrders.filter(isActiveRelatedLocalOrder);
+  if (activeRelatedLocalOrders.length > 0) {
+    return finish("CANNOT_CLOSE", "Active related local order blocks closure.", {
+      matchingExchangeOpenOrderCount: 0,
+      sameSymbolUnmatchedExchangeOpenOrderCount: 0,
+      positionAmt: 0,
+      positionSide: exchangePosition.positionSide
+    });
+  }
+
+  const nonTerminalRelatedLocalOrders = input.relatedLocalOrders.filter(
+    (order) => !isTerminalOrderStatus(order.status)
+  );
+  if (nonTerminalRelatedLocalOrders.length > 0) {
+    return finish("CANNOT_CLOSE", "Related local orders are not all terminal.", {
+      matchingExchangeOpenOrderCount: 0,
+      sameSymbolUnmatchedExchangeOpenOrderCount: 0,
+      positionAmt: 0,
+      positionSide: exchangePosition.positionSide
+    });
+  }
+
+  const relatedClientOrderIds = new Set(
+    input.relatedLocalOrders
+      .map((order) => normalizeText(order.clientOrderId))
+      .filter((clientOrderId): clientOrderId is string => clientOrderId !== null)
+  );
+  const relatedExchangeOrderIds = new Set(
+    input.relatedLocalOrders
+      .map((order) => normalizeText(order.exchangeOrderId))
+      .filter((exchangeOrderId): exchangeOrderId is string => exchangeOrderId !== null)
+  );
+  const matchesRelatedExchangeOrder = (order: RestFuturesOrder): boolean => {
+    const clientOrderId = normalizeText(order.clientOrderId);
+    const exchangeOrderId = exchangeOrderIdText(order);
+    return (
+      (clientOrderId !== null && relatedClientOrderIds.has(clientOrderId)) ||
+      (exchangeOrderId !== null && relatedExchangeOrderIds.has(exchangeOrderId))
+    );
+  };
+
+  const matchingExchangeOpenOrders = input.exchangeOpenOrders.filter(matchesRelatedExchangeOrder);
+  const sameSymbolUnmatchedExchangeOpenOrders = input.exchangeOpenOrders.filter(
+    (order) => normalizeSymbol(order.symbol) === lifecycleSymbol && !matchesRelatedExchangeOrder(order)
+  );
+
+  const exchangeEvidence = {
+    matchingExchangeOpenOrderCount: matchingExchangeOpenOrders.length,
+    sameSymbolUnmatchedExchangeOpenOrderCount: sameSymbolUnmatchedExchangeOpenOrders.length,
+    positionAmt: 0,
+    positionSide: exchangePosition.positionSide
+  };
+
+  if (matchingExchangeOpenOrders.some(isProtectiveOrReduceOnlyExchangeOrder)) {
+    return finish(
+      "CANNOT_CLOSE",
+      "Related protective/reduceOnly exchange open order blocks closure.",
+      exchangeEvidence
+    );
+  }
+
+  if (matchingExchangeOpenOrders.length > 0) {
+    return finish("CANNOT_CLOSE", "Related exchange open order blocks closure.", exchangeEvidence);
+  }
+
+  if (sameSymbolUnmatchedExchangeOpenOrders.length > 0) {
+    return finish(
+      "AMBIGUOUS",
+      "Exchange open order exists with same symbol but cannot be matched to local order.",
+      exchangeEvidence
+    );
+  }
+
+  return finish(
+    "CAN_CLOSE",
+    "Lifecycle has orderIntentId identity, zero BOTH position, terminal related local orders, and no related exchange open orders.",
+    exchangeEvidence
+  );
+};
 
 const mergeRiskLimits = (
   overrides: Partial<OrderRiskLimits> | undefined
@@ -309,9 +704,112 @@ const liveTestnetAuditEventForStatus = (status: OrderLifecycleStatus): string =>
   return "binance_order_trade_update";
 };
 
+const liveTestnetOrderIntentSubmittedEventType = "LIVE_TESTNET_ORDER_INTENT_SUBMITTED";
+const liveTestnetCancelIntentSubmittedEventType = "LIVE_TESTNET_CANCEL_INTENT_SUBMITTED";
+
+interface LiveSubmittedIntentAuditPayload {
+  intentId: string;
+  action: "PLACE_ORDER";
+  paperMode: false;
+  symbol: string;
+  side: OrderStatePayload["side"];
+  orderType: OrderStatePayload["orderType"];
+  quantity: number;
+  price: number | null;
+  stopPrice: number | null;
+  stopLossPrice: number | null;
+  takeProfitPrice: number | null;
+  reduceOnly: boolean;
+  decisionContextId: string | null;
+  preflightId: string | null;
+  preflightNonce: string | null;
+  sourceWindowId: string | null;
+  createdAt: number;
+  clientOrderId: string;
+  preSubmitIntentPersisted: boolean;
+  preSubmitIntentPersistedAt: number;
+  preSubmitIntentStatus: StoredPreSubmitOrderIntentRecord["status"];
+  canonicalIntentOrderId: string;
+}
+
+interface LiveSubmittedCancelIntentAuditPayload {
+  cancelIntentId: string;
+  targetIntentId: string | null;
+  targetClientOrderId: string;
+  targetOrderId: string;
+  symbol: string;
+  classification: CancelRiskClassification;
+  reason: string;
+  paperMode: false;
+  sourceWindowId: string | null;
+  createdAt: number;
+}
+
+const buildLiveSubmittedIntentAuditPayload = (
+  intent: NormalizedPlaceIntent,
+  order: OrderStatePayload,
+  preSubmitIntent: StoredPreSubmitOrderIntentRecord
+): LiveSubmittedIntentAuditPayload => ({
+  intentId: intent.intentId,
+  action: "PLACE_ORDER",
+  paperMode: false,
+  symbol: order.symbol,
+  side: order.side,
+  orderType: order.orderType,
+  quantity: order.quantity,
+  price: order.price,
+  stopPrice: order.stopPrice,
+  stopLossPrice: order.stopLossPrice,
+  takeProfitPrice: order.takeProfitPrice,
+  reduceOnly: order.reduceOnly,
+  decisionContextId: intent.decisionContextId,
+  preflightId: intent.preflightId,
+  preflightNonce: intent.preflightNonce,
+  sourceWindowId: order.sourceWindowId,
+  createdAt: intent.createdAt,
+  clientOrderId: order.clientOrderId,
+  preSubmitIntentPersisted: true,
+  preSubmitIntentPersistedAt: preSubmitIntent.persistedAt,
+  preSubmitIntentStatus: preSubmitIntent.status,
+  canonicalIntentOrderId: preSubmitIntent.orderId
+});
+
+const buildLiveSubmittedCancelIntentAuditPayload = (
+  intent: NormalizedCancelIntent,
+  target: CancelTargetResolution
+): LiveSubmittedCancelIntentAuditPayload => ({
+  cancelIntentId: intent.intentId,
+  targetIntentId: target.order?.intentId ?? null,
+  targetClientOrderId: target.targetClientOrderId ?? intent.targetClientOrderId,
+  targetOrderId: target.targetOrderId ?? intent.targetClientOrderId,
+  symbol: target.order?.symbol ?? intent.symbol ?? "UNKNOWN",
+  classification: target.classification,
+  reason: target.reason,
+  paperMode: false,
+  sourceWindowId: intent.sourceWindowId,
+  createdAt: intent.createdAt
+});
+
+const buildExecutionCommand = (input: {
+  type: ExecutionCommand["type"];
+  intentId: string | null;
+  decisionId?: string | null;
+  symbol: string;
+  quantity: number;
+  metadata?: Readonly<Record<string, unknown>>;
+}): ExecutionCommand => ({
+  type: input.type,
+  intentId: normalizeText(input.intentId) ?? "UNKNOWN_INTENT",
+  decisionId: normalizeText(input.decisionId),
+  symbol: normalizeSymbol(input.symbol) ?? "UNKNOWN",
+  quantity: Number.isFinite(input.quantity) ? input.quantity : 0,
+  metadata: Object.freeze({ ...(input.metadata ?? {}) })
+});
+
 export class BinanceOrderService {
   private readonly pendingTimers = new Map<string, NodeJS.Timeout[]>();
   private readonly boundPreflights = new Map<string, BoundPreflightRecord>();
+  private readonly execution: ExecutionFacade;
   private readonly riskLimits: OrderRiskLimits;
   private liveTradingDisabledByRuntime = false;
   private activePaperProtectiveLegs = 0;
@@ -322,8 +820,17 @@ export class BinanceOrderService {
     private readonly restBase: string,
     private readonly options: BinanceOrderServiceOptions
   ) {
+    this.execution = new ExecutionFacade({
+      auditEmitter: (message) => this.emit(message),
+      lifecycleEmitter: (message) => this.emit(message)
+    });
     this.riskLimits = mergeRiskLimits(options.riskLimits);
     this.recoverPendingPaperMarketOrders();
+    if (!options.skipStartupRecovery) {
+      void this.recoverLivePositionLifecyclesAuditOnly().catch((error) => {
+        console.warn("Live position lifecycle startup recovery failed", error);
+      });
+    }
   }
 
   disableLiveTrading(reason = "Live trading disabled by runtime kill switch."): void {
@@ -372,7 +879,30 @@ export class BinanceOrderService {
       return;
     }
 
-    const decisionContextError = this.linkExplicitDecisionContext(meta);
+    if (!meta.paperMode && payload.action === "PLACE_ORDER") {
+      const submittedIntentAudit = orderRepository.findOrderAuditEventByIntentIdAndType(
+        meta.intentId,
+        liveTestnetOrderIntentSubmittedEventType
+      );
+      if (submittedIntentAudit) {
+        this.replaySubmittedIntentInFlight(meta.intentId);
+        return;
+      }
+    }
+
+    if (!meta.paperMode && payload.action === "CANCEL_ORDER") {
+      const submittedCancelIntentAudit =
+        orderRepository.findOrderAuditEventByIntentIdAndType<LiveSubmittedCancelIntentAuditPayload>(
+          meta.intentId,
+          liveTestnetCancelIntentSubmittedEventType
+        );
+      if (submittedCancelIntentAudit) {
+        this.replayCancelIntentInFlight(meta.intentId, submittedCancelIntentAudit.payload);
+        return;
+      }
+    }
+
+    const decisionContextError = this.linkExplicitDecisionContext(meta, payload);
     if (decisionContextError) {
       this.persistIntentError(meta, decisionContextError);
       return;
@@ -399,7 +929,7 @@ export class BinanceOrderService {
         return;
       }
 
-      await this.handleCancelIntent(normalizedCancelIntent);
+      await this.handleCancelIntent(normalizedCancelIntent, context);
       return;
     }
 
@@ -640,7 +1170,99 @@ export class BinanceOrderService {
       return invalidValidation("order preflight requires a valid createdAt timestamp.");
     }
 
-    const normalizedIntent = this.normalizePlaceIntent(
+    const normalizedIntent = this.normalizePreflightPlaceIntent(payload, paperMode);
+
+    if (!normalizedIntent) {
+      return invalidValidation("order preflight requires symbol, side, type and positive quantity.");
+    }
+
+    return this.validatePlaceIntent(normalizedIntent, context);
+  }
+
+  bindPreflight(input: BindPreflightInput): void {
+    const normalizedIntent = this.normalizePreflightPlaceIntent(input.payload, input.paperMode);
+    const canonicalPayload = normalizedIntent
+      ? buildCanonicalPreflightPayload(normalizedIntent)
+      : null;
+    const { payload, ...boundRecord } = input;
+
+    this.boundPreflights.set(input.preflightId, {
+      ...boundRecord,
+      canonicalPayload,
+      lockedIntentId: null,
+      lockedAt: null
+    });
+    this.gcBoundPreflights(Date.now());
+  }
+
+  hasRuntimeBoundPreflight(preflightId: string, now = Date.now()): boolean {
+    const normalizedPreflightId = normalizeText(preflightId);
+    if (!normalizedPreflightId) {
+      return false;
+    }
+
+    const bound = this.boundPreflights.get(normalizedPreflightId);
+    if (!bound) {
+      return false;
+    }
+
+    if (now >= bound.expiresAt) {
+      this.boundPreflights.delete(normalizedPreflightId);
+      orderPreflightRepository.expireActivePreflight(
+        normalizedPreflightId,
+        now,
+        "ACTIVE preflight expired before runtime reuse."
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private markConsumedPreflight(intent: NormalizedPlaceIntent, consumedAt: number): void {
+    if (!intent.preflightId) {
+      return;
+    }
+
+    const persisted = orderPreflightRepository.markUsed(
+      intent.preflightId,
+      consumedAt,
+      `Consumed by OrderIntent ${intent.intentId}.`
+    );
+
+    if (!persisted || persisted.status !== "USED") {
+      return;
+    }
+
+    this.emit({
+      type: "order_preflight_invalidated",
+      generatedAt: consumedAt,
+      payload: {
+        preflightId: persisted.id,
+        requestId: persisted.requestId,
+        ticketKey: this.boundPreflights.get(persisted.id)?.ticketKey ?? null,
+        status: "USED",
+        reason: persisted.reason ?? "Preflight was consumed by a confirmed order.",
+        occurredAt: persisted.usedAt ?? consumedAt
+      }
+    });
+  }
+
+  private normalizePreflightPlaceIntent(
+    payload: RequestOrderPreflightMessage["payload"],
+    paperMode: boolean
+  ): NormalizedPlaceIntent | null {
+    const requestId = normalizeText(payload.requestId);
+    const createdAt =
+      typeof payload.createdAt === "number" && Number.isFinite(payload.createdAt)
+        ? payload.createdAt
+        : null;
+
+    if (!requestId || createdAt === null) {
+      return null;
+    }
+
+    return this.normalizePlaceIntent(
       {
         intentId: requestId,
         createdAt,
@@ -651,8 +1273,15 @@ export class BinanceOrderService {
         quantity: payload.quantity,
         price: payload.price ?? null,
         stopPrice: payload.stopPrice ?? null,
+        decisionContextId: null,
         reduceOnly: payload.reduceOnly === true,
-        paperMode
+        paperMode,
+        ...(typeof payload.stopLossPrice === "number" && Number.isFinite(payload.stopLossPrice)
+          ? { stopLossPrice: payload.stopLossPrice }
+          : {}),
+        ...(typeof payload.takeProfitPrice === "number" && Number.isFinite(payload.takeProfitPrice)
+          ? { takeProfitPrice: payload.takeProfitPrice }
+          : {})
       },
       {
         intentId: requestId,
@@ -666,22 +1295,23 @@ export class BinanceOrderService {
         reviewCorrelationId: null
       }
     );
-
-    if (!normalizedIntent) {
-      return invalidValidation("order preflight requires symbol, side, type and positive quantity.");
-    }
-
-    return this.validatePlaceIntent(normalizedIntent, context);
-  }
-
-  bindPreflight(input: BoundPreflightRecord): void {
-    this.boundPreflights.set(input.preflightId, input);
-    this.gcBoundPreflights(Date.now());
   }
 
   private linkExplicitDecisionContext(
-    meta: NormalizedIntentMeta
+    meta: NormalizedIntentMeta,
+    payload: OrderIntentMessage["payload"]
   ): { code: string; message: string; retriable: boolean } | null {
+    const requiresDecisionContext =
+      !meta.paperMode && payload.action === "PLACE_ORDER";
+
+    if (requiresDecisionContext && !meta.decisionContextId) {
+      return {
+        code: "NO_DECISION_CONTEXT",
+        message: "NO_DECISION_CONTEXT: non-paper PLACE_ORDER requires decisionContextId.",
+        retriable: false
+      };
+    }
+
     if (!meta.decisionContextId) {
       return null;
     }
@@ -691,6 +1321,30 @@ export class BinanceOrderService {
       return {
         code: "DECISION_CONTEXT_NOT_FOUND",
         message: "DECISION_CONTEXT_NOT_FOUND: explicit decisionContextId was not found.",
+        retriable: false
+      };
+    }
+
+    if (requiresDecisionContext && context.decision !== "ENTER") {
+      return {
+        code: "DECISION_CONTEXT_NOT_ENTER",
+        message: "DECISION_CONTEXT_NOT_ENTER: non-paper PLACE_ORDER requires an ENTER TradeDecisionContext.",
+        retriable: false
+      };
+    }
+
+    const submittedSymbol = normalizeSymbol(payload.symbol);
+    const contextSymbol = normalizeSymbol(context.symbol);
+    if (
+      requiresDecisionContext &&
+      submittedSymbol &&
+      contextSymbol &&
+      contextSymbol !== submittedSymbol
+    ) {
+      return {
+        code: "DECISION_CONTEXT_SYMBOL_MISMATCH",
+        message:
+          "DECISION_CONTEXT_SYMBOL_MISMATCH: TradeDecisionContext symbol must match PLACE_ORDER symbol.",
         retriable: false
       };
     }
@@ -949,6 +1603,8 @@ export class BinanceOrderService {
       return;
     }
 
+    const lockedAt = Date.now();
+    this.markConsumedPreflight(intent, lockedAt);
     const validation = await this.validatePlaceIntent(intent, context);
     const executionPrice =
       validation.normalizedPrice ?? context.row?.markPrice ?? context.row?.lastPrice ?? null;
@@ -978,6 +1634,19 @@ export class BinanceOrderService {
       });
 
       orderRepository.upsertOrderState(rejectedOrder);
+      this.emitAuditEvent(
+        rejectedOrder,
+        "EXECUTION_TICKET_LOCKED",
+        "OrderIntent locked to backend preflight snapshot before validation rejection.",
+        {
+          lifecycle: "Locked",
+          preflightId: intent.preflightId,
+          preflightNonce: intent.preflightNonce,
+          decisionContextId: intent.decisionContextId,
+          lockedAt
+        },
+        lockedAt
+      );
 
       const rejectedMessage: OrderRejectedMessage = {
         type: "order_rejected",
@@ -1042,7 +1711,33 @@ export class BinanceOrderService {
       updatedAt: Date.now()
     });
 
+    const paperCommand = buildExecutionCommand({
+      type: "PAPER",
+      intentId: intent.intentId,
+      decisionId: intent.decisionContextId,
+      symbol: acceptedOrder.symbol,
+      quantity: acceptedOrder.quantity,
+      metadata: {
+        sourceWindowId: acceptedOrder.sourceWindowId,
+        orderType: acceptedOrder.orderType,
+        dryRun: acceptedOrder.dryRun
+      }
+    });
+    this.execution.validatePaperCommand(paperCommand, acceptedOrder);
     orderRepository.upsertOrderState(acceptedOrder);
+    this.emitAuditEvent(
+      acceptedOrder,
+      "EXECUTION_TICKET_LOCKED",
+      "OrderIntent locked to backend preflight snapshot.",
+      {
+        lifecycle: "Locked",
+        preflightId: intent.preflightId,
+        preflightNonce: intent.preflightNonce,
+        decisionContextId: intent.decisionContextId,
+        lockedAt
+      },
+      lockedAt
+    );
 
     const ackMessage: OrderAckMessage = {
       type: "order_ack",
@@ -1123,6 +1818,25 @@ export class BinanceOrderService {
 
     if (Date.now() >= bound.expiresAt) {
       this.boundPreflights.delete(preflightId);
+      const expired = orderPreflightRepository.expireActivePreflight(
+        preflightId,
+        Date.now(),
+        "ACTIVE preflight expired before order submit."
+      );
+      if (expired?.status === "EXPIRED") {
+        this.emit({
+          type: "order_preflight_invalidated",
+          generatedAt: Date.now(),
+          payload: {
+            preflightId: expired.id,
+            requestId: expired.requestId,
+            ticketKey: bound.ticketKey,
+            status: "EXPIRED",
+            reason: expired.reason ?? "Preflight expired before order submit.",
+            occurredAt: Date.now()
+          }
+        });
+      }
       return {
         code: "PREFLIGHT_STALE",
         message: "PREFLIGHT_STALE: backend preflight binding has expired.",
@@ -1138,6 +1852,38 @@ export class BinanceOrderService {
       };
     }
 
+    if (!bound.canonicalPayload) {
+      return {
+        code: "PREFLIGHT_PAYLOAD_MISMATCH",
+        message: "PREFLIGHT_PAYLOAD_MISMATCH: backend preflight payload binding is unavailable.",
+        retriable: false
+      };
+    }
+
+    const submitPayload = buildCanonicalPreflightPayload(intent);
+    const mismatchedField = findCanonicalPreflightPayloadMismatch(
+      bound.canonicalPayload,
+      submitPayload
+    );
+    if (mismatchedField) {
+      return {
+        code: "PREFLIGHT_PAYLOAD_MISMATCH",
+        message: `PREFLIGHT_PAYLOAD_MISMATCH: backend preflight ${mismatchedField} did not match the submit request.`,
+        retriable: false
+      };
+    }
+
+    if (bound.lockedIntentId && bound.lockedIntentId !== intent.intentId) {
+      return {
+        code: "ORDER_INTENT_LOCKED",
+        message: "ORDER_INTENT_LOCKED: backend preflight is already locked to another OrderIntent.",
+        retriable: false
+      };
+    }
+
+    bound.lockedIntentId = intent.intentId;
+    bound.lockedAt = Date.now();
+    this.boundPreflights.set(preflightId, bound);
     return null;
   }
 
@@ -1145,6 +1891,25 @@ export class BinanceOrderService {
     for (const [preflightId, record] of this.boundPreflights.entries()) {
       if (now >= record.expiresAt) {
         this.boundPreflights.delete(preflightId);
+        const expired = orderPreflightRepository.expireActivePreflight(
+          preflightId,
+          now,
+          "ACTIVE preflight expired during runtime cleanup."
+        );
+        if (expired?.status === "EXPIRED") {
+          this.emit({
+            type: "order_preflight_invalidated",
+            generatedAt: now,
+            payload: {
+              preflightId: expired.id,
+              requestId: expired.requestId,
+              ticketKey: record.ticketKey,
+              status: "EXPIRED",
+              reason: expired.reason ?? "Preflight expired during runtime cleanup.",
+              occurredAt: now
+            }
+          });
+        }
       }
     }
   }
@@ -1165,6 +1930,7 @@ export class BinanceOrderService {
       return;
     }
 
+    const parentOrderId = this.resolveReduceOnlyLifecycleParentOrderId(intent);
     const pendingOrder = this.buildOrderState({
       intentId: intent.intentId,
       symbol: intent.symbol,
@@ -1178,7 +1944,7 @@ export class BinanceOrderService {
       status: "NEW",
       clientOrderId: intent.clientOrderId,
       sourceWindowId: intent.sourceWindowId,
-      parentOrderId: null,
+      parentOrderId,
       protectiveKind: null,
       dryRun: false,
       reduceOnly: intent.reduceOnly,
@@ -1188,13 +1954,102 @@ export class BinanceOrderService {
       updatedAt: Date.now()
     });
 
-    orderRepository.upsertOrderState(pendingOrder);
+    const liveCommand = buildExecutionCommand({
+      type: "LIVE",
+      intentId: intent.intentId,
+      decisionId: intent.decisionContextId,
+      symbol: pendingOrder.symbol,
+      quantity: pendingOrder.quantity,
+      metadata: {
+        sourceWindowId: pendingOrder.sourceWindowId,
+        orderType: pendingOrder.orderType,
+        dryRun: pendingOrder.dryRun
+      }
+    });
+    this.execution.validateLiveCommand(liveCommand, pendingOrder);
+    let preSubmitIntent: StoredPreSubmitOrderIntentRecord;
+    try {
+      orderRepository.upsertOrderState(pendingOrder);
+      preSubmitIntent = this.persistAndVerifyPreSubmitOrderIntent(intent, pendingOrder);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Pre-submit intent durability failed.";
+      const rejectedOrder: OrderStatePayload = {
+        ...pendingOrder,
+        status: "REJECTED",
+        rejectReason: `ORDER_INTENT_DURABILITY_FAILED: ${message}`,
+        updatedAt: Date.now(),
+        lastEventSource: "validation"
+      };
+      const rejectedMessage: OrderRejectedMessage = {
+        type: "order_rejected",
+        generatedAt: Date.now(),
+        payload: {
+          intentId: intent.intentId,
+          duplicate: false,
+          order: rejectedOrder,
+          validation,
+          message: rejectedOrder.rejectReason ?? "Order intent durability failed."
+        }
+      };
+
+      try {
+        orderRepository.upsertOrderState(rejectedOrder);
+        orderRepository.saveIntentResponse({
+          intentId: intent.intentId,
+          createdAt: intent.createdAt,
+          sourceWindowId: intent.sourceWindowId,
+          orderId: rejectedOrder.orderId,
+          responseType: rejectedMessage.type,
+          dryRun: false,
+          response: rejectedMessage
+        });
+        this.emitAuditEvent(
+          rejectedOrder,
+          "ORDER_INTENT_DURABILITY_BLOCKED_SUBMIT",
+          "Blocked Binance REST submit because canonical pre-submit intent persistence failed.",
+          {
+            gateCode: "ORDER_INTENT_DURABILITY_FAILED",
+            orderIntentId: intent.intentId,
+            clientOrderId: intent.clientOrderId,
+            symbol: intent.symbol,
+            reduceOnly: intent.reduceOnly,
+            error: message,
+            submitAttempted: false
+          },
+          rejectedOrder.updatedAt
+        );
+      } catch (persistError) {
+        console.warn("Order intent durability failure evidence persistence failed", persistError);
+      }
+
+      this.emit(rejectedMessage);
+      this.emitOrderStatus(rejectedOrder);
+      return;
+    }
+
+    this.emitAuditEvent(
+      pendingOrder,
+      liveTestnetOrderIntentSubmittedEventType,
+      "Persisted durable pre-submit order intent before Binance REST submit.",
+      buildLiveSubmittedIntentAuditPayload(intent, pendingOrder, preSubmitIntent),
+      pendingOrder.updatedAt
+    );
+    const submitAttemptedAt = Date.now();
     this.emitAuditEvent(
       pendingOrder,
       "LIVE_TESTNET_ORDER_SEND",
-      "Sending signed Binance Futures testnet order.",
-      validation,
-      pendingOrder.updatedAt
+      "Submitted locked OrderIntent to Binance Futures testnet.",
+      {
+        lifecycle: "Submitted",
+        validation,
+        orderIntentId: intent.intentId,
+        clientOrderId: pendingOrder.clientOrderId,
+        preSubmitIntentPersisted: true,
+        preSubmitIntentPersistedAt: preSubmitIntent.persistedAt,
+        submitAttemptedAt,
+        persistedBeforeSubmit: preSubmitIntent.persistedAt <= submitAttemptedAt
+      },
+      submitAttemptedAt
     );
 
     try {
@@ -1210,6 +2065,7 @@ export class BinanceOrderService {
       });
       const liveOrder = this.buildOrderStateFromRestOrder(response, pendingOrder, "binance_stream");
 
+      this.execution.validateLiveCommand(liveCommand, liveOrder);
       orderRepository.upsertOrderState(liveOrder);
 
       const ackMessage: OrderAckMessage = {
@@ -1238,10 +2094,19 @@ export class BinanceOrderService {
       this.emitAuditEvent(
         liveOrder,
         "LIVE_TESTNET_ORDER_ACK",
-        "Binance Futures testnet order accepted by REST.",
-        response,
+        "Binance Futures testnet order acknowledged by REST.",
+        {
+          lifecycle: "Acknowledged",
+          response
+        },
         liveOrder.updatedAt
       );
+      this.recordLiveOrderLifecycleAck({
+        order: liveOrder,
+        timestamp: Date.now(),
+        decisionContextId: intent.decisionContextId,
+        unifiedSignalId: intent.unifiedSignalId
+      });
       await this.reconcileLiveTestnetOrder(liveOrder, apiKey, apiSecret);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Binance testnet order failed.";
@@ -1286,11 +2151,71 @@ export class BinanceOrderService {
     }
   }
 
-  private async handleCancelIntent(intent: NormalizedCancelIntent): Promise<void> {
-    const existingOrder =
-      orderRepository.getOrderByClientOrderId(intent.targetClientOrderId) ??
-      orderRepository.getOrderByOrderId(intent.targetClientOrderId);
-    const validation = this.buildCancelValidation(intent.paperMode, Boolean(existingOrder));
+  private persistAndVerifyPreSubmitOrderIntent(
+    intent: NormalizedPlaceIntent,
+    pendingOrder: OrderStatePayload
+  ): StoredPreSubmitOrderIntentRecord {
+    const persistedAt = Date.now();
+    orderRepository.savePreSubmitIntentRecord({
+      intentId: intent.intentId,
+      createdAt: intent.createdAt,
+      sourceWindowId: intent.sourceWindowId,
+      orderId: pendingOrder.orderId,
+      clientOrderId: pendingOrder.clientOrderId,
+      symbol: pendingOrder.symbol,
+      side: pendingOrder.side,
+      orderType: pendingOrder.orderType,
+      quantity: pendingOrder.quantity,
+      reduceOnly: pendingOrder.reduceOnly,
+      decisionContextId: intent.decisionContextId,
+      preflightId: intent.preflightId,
+      preflightNonce: intent.preflightNonce,
+      status: "INTENT_ACCEPTED_PRE_SUBMIT",
+      persistedAt
+    });
+
+    const persisted = orderRepository.getPreSubmitIntentRecord(intent.intentId);
+    if (!persisted) {
+      throw new Error("canonical pre-submit OrderIntent readback was missing.");
+    }
+
+    const expectedDecisionContextId = normalizeText(intent.decisionContextId);
+    const expectedPreflightId = normalizeText(intent.preflightId);
+    const expectedPreflightNonce = normalizeText(intent.preflightNonce);
+    const mismatches = [
+      persisted.intentId !== intent.intentId ? "intentId" : null,
+      persisted.orderId !== pendingOrder.orderId ? "orderId" : null,
+      persisted.clientOrderId !== pendingOrder.clientOrderId ? "clientOrderId" : null,
+      normalizeSymbol(persisted.symbol) !== normalizeSymbol(pendingOrder.symbol) ? "symbol" : null,
+      persisted.side !== pendingOrder.side ? "side" : null,
+      persisted.orderType !== pendingOrder.orderType ? "orderType" : null,
+      persisted.quantity !== pendingOrder.quantity ? "quantity" : null,
+      persisted.reduceOnly !== pendingOrder.reduceOnly ? "reduceOnly" : null,
+      persisted.decisionContextId !== expectedDecisionContextId ? "decisionContextId" : null,
+      persisted.preflightId !== expectedPreflightId ? "preflightId" : null,
+      persisted.preflightNonce !== expectedPreflightNonce ? "preflightNonce" : null,
+      persisted.status !== "INTENT_ACCEPTED_PRE_SUBMIT" ? "status" : null,
+      persisted.persistedAt !== persistedAt ? "persistedAt" : null
+    ].filter((field): field is string => field !== null);
+
+    if (mismatches.length > 0) {
+      throw new Error(`canonical pre-submit OrderIntent readback mismatch: ${mismatches.join(", ")}.`);
+    }
+
+    return persisted;
+  }
+
+  private async handleCancelIntent(
+    intent: NormalizedCancelIntent,
+    context: OrderIntentContext
+  ): Promise<void> {
+    const target = this.resolveCancelTarget(intent);
+    const existingOrder = target.order;
+    const validation = this.buildCancelValidation({
+      paperMode: intent.paperMode,
+      accountConnected: context.account.enabled && context.account.connected,
+      target
+    });
 
     if (!existingOrder || !validation.accepted) {
       const rejectedOrder = this.buildOrderState({
@@ -1352,7 +2277,7 @@ export class BinanceOrderService {
     }
 
     if (!intent.paperMode) {
-      await this.handleLiveCancelIntent(intent, existingOrder, validation);
+      await this.handleLiveCancelIntent(intent, target, validation);
       return;
     }
 
@@ -1404,11 +2329,21 @@ export class BinanceOrderService {
 
   private async handleLiveCancelIntent(
     intent: NormalizedCancelIntent,
-    existingOrder: OrderStatePayload,
+    target: CancelTargetResolution,
     validation: OrderValidationPayload
   ): Promise<void> {
+    const existingOrder = target.order;
     const apiKey = this.options.apiKey;
     const apiSecret = this.options.apiSecret;
+
+    if (!existingOrder) {
+      this.persistIntentError(intent, {
+        code: "LIVE_TESTNET_CANCEL_FAILED",
+        message: "LIVE_TESTNET_CANCEL_FAILED: local cancel target was unavailable.",
+        retriable: false
+      });
+      return;
+    }
 
     if (!apiKey || !apiSecret) {
       this.persistIntentError(intent, {
@@ -1419,6 +2354,20 @@ export class BinanceOrderService {
       return;
     }
 
+    const cancelAuditOrder: OrderStatePayload = {
+      ...existingOrder,
+      intentId: intent.intentId,
+      sourceWindowId: intent.sourceWindowId ?? existingOrder.sourceWindowId,
+      updatedAt: Date.now(),
+      lastEventSource: "validation"
+    };
+    this.emitAuditEvent(
+      cancelAuditOrder,
+      liveTestnetCancelIntentSubmittedEventType,
+      "Persisted durable pre-submit cancel intent before Binance REST cancel.",
+      buildLiveSubmittedCancelIntentAuditPayload(intent, target),
+      cancelAuditOrder.updatedAt
+    );
     this.emitAuditEvent(
       existingOrder,
       "LIVE_TESTNET_CANCEL_SEND",
@@ -1829,18 +2778,6 @@ export class BinanceOrderService {
         : notionalResult.warnings[0] ?? "Notional validation failed."
     });
 
-    const currentSymbolPositions = context.account.positions.filter(
-      (position) => position.symbol === intent.symbol && Math.abs(position.quantity) > 0
-    );
-    const currentSymbolNotional = currentSymbolPositions.reduce((sum, position) => {
-      const markPrice = position.markPrice > 0 ? position.markPrice : marketPrice;
-      return sum + (markPrice && markPrice > 0 ? Math.abs(position.quantity) * markPrice : 0);
-    }, 0);
-    const openPositionSymbols = new Set(
-      context.account.positions
-        .filter((position) => Math.abs(position.quantity) > 0)
-        .map((position) => position.symbol)
-    );
     const maxLeverageLimit = this.options.liveRiskLimits?.maxLeverage;
     const shouldFetchLeverageBrackets =
       !paperMode &&
@@ -1860,16 +2797,16 @@ export class BinanceOrderService {
       context.account.balances.availableBalanceUsd;
 
     checks.push(
-      ...evaluateOrderRiskSafety({
+      ...evaluateRiskAuthorityOrder({
         paperMode,
         reduceOnly: intent.reduceOnly,
+        symbol: intent.symbol,
         orderNotional:
           typeof notionalResult.notional === "number" && Number.isFinite(notionalResult.notional)
             ? notionalResult.notional
             : null,
-        currentSymbolNotional,
-        hasCurrentSymbolPosition: currentSymbolPositions.length > 0,
-        openPositionsCount: openPositionSymbols.size,
+        account: context.account,
+        marketPrice,
         availableBalanceUsd: context.account.balances.availableBalanceUsd,
         accountEquityUsd,
         leverageBracket,
@@ -2015,40 +2952,174 @@ export class BinanceOrderService {
     this.activePaperProtectiveLegs = Math.max(0, this.activePaperProtectiveLegs - 1);
   }
 
-  private buildCancelValidation(
-    paperMode: boolean,
-    hasOrder: boolean
-  ): OrderValidationPayload {
+  private resolveCancelTarget(intent: NormalizedCancelIntent): CancelTargetResolution {
+    const resolvedByClientOrderId = orderRepository.getOrderByClientOrderId(intent.targetClientOrderId);
+    const resolvedByOrderId = orderRepository.getOrderByOrderId(intent.targetClientOrderId);
+
+    if (
+      resolvedByClientOrderId &&
+      resolvedByOrderId &&
+      resolvedByClientOrderId.orderId !== resolvedByOrderId.orderId
+    ) {
+      return {
+        order: null,
+        classification: "TERMINAL_OR_INVALID",
+        reason: "Cancel target is ambiguous across clientOrderId and orderId lookups.",
+        targetOrderId: null,
+        targetClientOrderId: intent.targetClientOrderId
+      };
+    }
+
+    const existingOrder = resolvedByClientOrderId ?? resolvedByOrderId;
+    if (!existingOrder) {
+      return {
+        order: null,
+        classification: "TERMINAL_OR_INVALID",
+        reason: "Target order was not found in local order state.",
+        targetOrderId: null,
+        targetClientOrderId: intent.targetClientOrderId
+      };
+    }
+
+    if (intent.symbol && intent.symbol !== existingOrder.symbol) {
+      return {
+        order: existingOrder,
+        classification: "TERMINAL_OR_INVALID",
+        reason: "Cancel symbol did not match the resolved local order.",
+        targetOrderId: existingOrder.orderId,
+        targetClientOrderId: existingOrder.clientOrderId
+      };
+    }
+
+    if (isTerminalOrderStatus(existingOrder.status)) {
+      return {
+        order: existingOrder,
+        classification: "TERMINAL_OR_INVALID",
+        reason: `Target order is already ${existingOrder.status}.`,
+        targetOrderId: existingOrder.orderId,
+        targetClientOrderId: existingOrder.clientOrderId
+      };
+    }
+
+    if (
+      existingOrder.protectiveKind !== null ||
+      existingOrder.reduceOnly ||
+      existingOrder.orderType === "STOP_MARKET" ||
+      existingOrder.orderType === "TAKE_PROFIT_MARKET"
+    ) {
+      return {
+        order: existingOrder,
+        classification: "PROTECTIVE_OR_RISK_INCREASING",
+        reason: "Cancel target is protective or otherwise risk-increasing to remove.",
+        targetOrderId: existingOrder.orderId,
+        targetClientOrderId: existingOrder.clientOrderId
+      };
+    }
+
+    if (
+      (existingOrder.orderType === "MARKET" || existingOrder.orderType === "LIMIT") &&
+      !existingOrder.reduceOnly &&
+      existingOrder.protectiveKind === null
+    ) {
+      return {
+        order: existingOrder,
+        classification: "ENTRY_PENDING_RISK_REDUCING",
+        reason: "Cancel target is a non-terminal entry order and cancel is risk-reducing.",
+        targetOrderId: existingOrder.orderId,
+        targetClientOrderId: existingOrder.clientOrderId
+      };
+    }
+
+    return {
+      order: existingOrder,
+      classification: "UNKNOWN_RISK",
+      reason: "Cancel target could not be confidently classified and is blocked by default.",
+      targetOrderId: existingOrder.orderId,
+      targetClientOrderId: existingOrder.clientOrderId
+    };
+  }
+
+  private buildCancelValidation(input: {
+    paperMode: boolean;
+    accountConnected: boolean;
+    target: CancelTargetResolution;
+  }): OrderValidationPayload {
+    if (input.paperMode) {
+      const checks: OrderValidationCheck[] = [
+        {
+          code: "execution_mode",
+          passed: true,
+          blocking: true,
+          message: "Paper mode is enabled."
+        },
+        {
+          code: "account_connection",
+          passed: true,
+          blocking: false,
+          message: "Paper cancel uses existing server-side order state."
+        },
+        {
+          code: "exchange_filters",
+          passed: Boolean(input.target.order),
+          blocking: true,
+          message: input.target.order
+            ? "Target order exists in server-side state."
+            : "Target order was not found in server-side order state."
+        }
+      ];
+
+      return {
+        accepted: checks.every((check) => check.passed || !check.blocking),
+        paperMode: true,
+        checks,
+        normalizedQuantity: 0,
+        normalizedPrice: null,
+        notional: null,
+        riskLimits: mergeRiskLimits(this.riskLimits)
+      };
+    }
+
     const checks: OrderValidationCheck[] = [
       {
         code: "execution_mode",
-        passed: paperMode || this.options.liveModeEnabled,
+        passed: this.options.liveModeEnabled,
         blocking: true,
-        message: paperMode
-          ? "Paper mode is enabled."
-          : this.options.liveModeEnabled
-            ? "Live mode is enabled."
-            : "Live mode is disabled for this infrastructure pass."
+        message: this.options.liveModeEnabled
+          ? "Live mode is enabled."
+          : "Live mode is disabled for this infrastructure pass."
       },
       {
         code: "account_connection",
-        passed: true,
-        blocking: false,
-        message: "Cancel intent uses existing server-side order state."
+        passed: input.accountConnected,
+        blocking: true,
+        message: input.accountConnected
+          ? "Account connection is active."
+          : "Live cancel requires an active account connection."
       },
       {
-        code: "exchange_filters",
-        passed: hasOrder,
+        code: "cancel_target_resolution",
+        passed: input.target.order !== null && input.target.classification !== "TERMINAL_OR_INVALID",
         blocking: true,
-        message: hasOrder
-          ? "Target order exists in server-side state."
-          : "Target order was not found in server-side order state."
+        message: input.target.reason
+      },
+      {
+        code: "cancel_risk_classification",
+        passed: input.target.classification === "ENTRY_PENDING_RISK_REDUCING",
+        blocking: true,
+        message:
+          input.target.classification === "ENTRY_PENDING_RISK_REDUCING"
+            ? "Cancel target is classified as entry-pending risk-reducing."
+            : input.target.classification === "PROTECTIVE_OR_RISK_INCREASING"
+              ? "Cancel target is classified as protective or risk-increasing and is blocked."
+              : input.target.classification === "UNKNOWN_RISK"
+                ? "Cancel target risk could not be confidently classified and is blocked."
+                : input.target.reason
       }
     ];
 
     return {
       accepted: checks.every((check) => check.passed || !check.blocking),
-      paperMode,
+      paperMode: false,
       checks,
       normalizedQuantity: 0,
       normalizedPrice: null,
@@ -2210,6 +3281,46 @@ export class BinanceOrderService {
         return;
       }
 
+      try {
+        const exchangeOrder = await getFuturesOrder(this.restBase, apiKey, apiSecret, {
+          symbol: order.symbol,
+          origClientOrderId: order.clientOrderId
+        });
+        const reconciled = this.buildOrderStateFromRestOrder(
+          exchangeOrder,
+          order,
+          "binance_stream"
+        );
+
+        orderRepository.upsertOrderState(reconciled);
+        this.emitOrderStatus(reconciled);
+        this.emitAuditEvent(
+          reconciled,
+          "LIVE_TESTNET_RECONCILED",
+          "Live testnet order reconciled from Binance order lookup.",
+          {
+            openOrders: openOrders.length,
+            exchangeStatus: exchangeOrder.status,
+            activePositions: positionRisk.filter((position) => Math.abs(safeNumber(position.positionAmt)) > 0)
+              .length
+          },
+          Date.now()
+        );
+        return;
+      } catch (orderLookupError) {
+        this.emitAuditEvent(
+          order,
+          "LIVE_TESTNET_RECONCILE_ORDER_LOOKUP_FAILED",
+          "Live testnet order lookup failed after open-order reconciliation.",
+          {
+            error: orderLookupError instanceof Error ? orderLookupError.message : String(orderLookupError),
+            openOrders: openOrders.length,
+            activePositions: positionRisk.filter((position) => Math.abs(safeNumber(position.positionAmt)) > 0).length
+          },
+          Date.now()
+        );
+      }
+
       this.emitAuditEvent(
         order,
         "LIVE_TESTNET_RECONCILED",
@@ -2230,6 +3341,27 @@ export class BinanceOrderService {
         Date.now()
       );
     }
+  }
+
+  async reconcileLiveTestnetOrderByClientOrderId(clientOrderId: string): Promise<void> {
+    const order = orderRepository.getOrderByClientOrderId(clientOrderId);
+
+    if (!order) {
+      throw new Error(`Order ${clientOrderId} was not found for testnet reconciliation.`);
+    }
+
+    const apiKey = this.options.apiKey;
+    const apiSecret = this.options.apiSecret;
+
+    if (!apiKey || !apiSecret) {
+      throw new Error("Binance API credentials are required for testnet reconciliation.");
+    }
+
+    await this.reconcileLiveTestnetOrder(order, apiKey, apiSecret);
+  }
+
+  async runLivePositionLifecycleRecoveryAudit(): Promise<void> {
+    await this.recoverLivePositionLifecyclesAuditOnly();
   }
 
   private buildOrderState(input: {
@@ -2556,18 +3688,7 @@ export class BinanceOrderService {
     timestamp: number;
     payload?: unknown;
   }): void {
-    const message: PositionLifecycleEventMessage = {
-      type: "position_lifecycle_event",
-      generatedAt: input.timestamp,
-      payload: {
-        lifecycleId: input.lifecycleId,
-        eventType: input.eventType,
-        timestamp: input.timestamp,
-        ...(input.payload === undefined ? {} : { payload: input.payload })
-      }
-    };
-
-    this.emit(message);
+    this.execution.lifecycleManager.emitPositionLifecycleEventMessage(input);
   }
 
   private appendAndEmitPositionLifecycleEvent(input: {
@@ -2576,28 +3697,46 @@ export class BinanceOrderService {
     timestamp: number;
     payload?: unknown;
   }): void {
-    const event = positionLifecycleRepository.appendLifecycleEvent({
-      lifecycleId: input.lifecycleId,
-      eventType: input.eventType,
-      timestamp: input.timestamp,
-      payload: input.payload
-    });
-
-    this.emitPositionLifecycleEventMessage({
-      lifecycleId: event.lifecycleId,
-      eventType: event.eventType,
-      timestamp: event.timestamp,
-      payload: event.payload
-    });
+    this.execution.lifecycleManager.appendAndEmitPositionLifecycleEvent(input);
   }
 
   private resolvePaperPositionLifecycle(position: PaperPositionPayload): PositionLifecycle | null {
-    const entryOrder = orderRepository.getOrderByOrderId(position.entryOrderId);
-    if (!entryOrder?.intentId) {
-      return null;
-    }
+    return this.execution.lifecycleManager.resolvePaperPositionLifecycle(position);
+  }
 
-    return positionLifecycleRepository.getPositionLifecycleByOrderIntentId(entryOrder.intentId);
+  private createOrOpenPositionLifecycle(input: {
+    order: OrderStatePayload;
+    timestamp: number;
+    decisionContextId?: string | null;
+    unifiedSignalId?: string | null;
+  }): void {
+    this.execution.lifecycleManager.createOrOpenPositionLifecycle(input);
+  }
+
+  private recordLiveOrderLifecycleAck(input: {
+    order: OrderStatePayload;
+    timestamp: number;
+    decisionContextId?: string | null;
+    unifiedSignalId?: string | null;
+  }): void {
+    this.execution.lifecycleManager.recordLiveOrderLifecycleAck(input);
+  }
+
+  private resolveReduceOnlyLifecycleParentOrderId(intent: NormalizedPlaceIntent): string | null {
+    return this.execution.lifecycleManager.resolveReduceOnlyLifecycleParentOrderId({
+      reduceOnly: intent.reduceOnly,
+      decisionContextId: intent.decisionContextId,
+      symbol: intent.symbol
+    });
+  }
+
+  private recordReduceOnlyLifecycleOrder(input: {
+    order: OrderStatePayload;
+    timestamp: number;
+    decisionContextId?: string | null;
+    unifiedSignalId?: string | null;
+  }): void {
+    this.execution.lifecycleManager.recordReduceOnlyLifecycleOrder(input);
   }
 
   private createOrOpenPaperPositionLifecycle(input: {
@@ -2607,171 +3746,22 @@ export class BinanceOrderService {
     decisionContextId?: string | null;
     unifiedSignalId?: string | null;
   }): void {
-    if (!input.filledOrder.intentId) {
-      return;
-    }
-
-    try {
-      const existing = positionLifecycleRepository.getPositionLifecycleByOrderIntentId(
-        input.filledOrder.intentId
-      );
-      if (existing) {
-        return;
-      }
-
-      const lifecycle = positionLifecycleRepository.createPositionLifecycle({
-        symbol: input.position.symbol,
-        orderIntentId: input.filledOrder.intentId,
-        decisionContextId: input.decisionContextId ?? null,
-        unifiedSignalId: input.unifiedSignalId ?? null,
-        status: "OPEN",
-        openedAt: input.position.openedAt,
-        createdAt: input.timestamp
-      });
-      const createdMessage: PositionLifecycleCreatedMessage = {
-        type: "position_lifecycle_created",
-        generatedAt: input.timestamp,
-        payload: lifecycle
-      };
-
-      this.emit(createdMessage);
-      this.appendAndEmitPositionLifecycleEvent({
-        lifecycleId: lifecycle.id,
-        eventType: "CREATED",
-        timestamp: input.timestamp,
-        payload: {
-          orderIntentId: input.filledOrder.intentId,
-          decisionContextId: input.decisionContextId ?? null,
-          unifiedSignalId: input.unifiedSignalId ?? null,
-          paperPositionId: input.position.paperPositionId,
-          entryOrderId: input.position.entryOrderId
-        }
-      });
-      this.appendAndEmitPositionLifecycleEvent({
-        lifecycleId: lifecycle.id,
-        eventType: "POSITION_OPENED",
-        timestamp: input.timestamp,
-        payload: {
-          paperPositionId: input.position.paperPositionId,
-          entryOrderId: input.position.entryOrderId,
-          side: input.position.side,
-          quantity: input.position.quantity,
-          entryPrice: input.position.entryPrice,
-          stopLossOrderId: input.position.stopLossOrderId,
-          takeProfitOrderId: input.position.takeProfitOrderId
-        }
-      });
-    } catch (error) {
-      console.warn("Paper position lifecycle open integration failed", error);
-    }
+    this.execution.lifecycleManager.createOrOpenPaperPositionLifecycle(input);
   }
 
   private updatePaperPositionLifecycle(position: PaperPositionPayload, timestamp: number): void {
-    try {
-      const lifecycle = this.resolvePaperPositionLifecycle(position);
-      if (!lifecycle) {
-        return;
-      }
-
-      this.appendAndEmitPositionLifecycleEvent({
-        lifecycleId: lifecycle.id,
-        eventType: "POSITION_UPDATED",
-        timestamp,
-        payload: {
-          paperPositionId: position.paperPositionId,
-          entryOrderId: position.entryOrderId,
-          unrealizedPnl: position.unrealizedPnl,
-          quantity: position.quantity,
-          updatedAt: timestamp
-        }
-      });
-
-      const updated = positionLifecycleRepository.updatePositionLifecycle({
-        id: lifecycle.id,
-        status: lifecycle.status === "OPEN" ? "MANAGING" : lifecycle.status,
-        updatedAt: timestamp
-      });
-      if (!updated) {
-        return;
-      }
-
-      const message: PositionLifecycleUpdatedMessage = {
-        type: "position_lifecycle_updated",
-        generatedAt: timestamp,
-        payload: updated
-      };
-      this.emit(message);
-    } catch (error) {
-      console.warn("Paper position lifecycle update integration failed", error);
-    }
+    this.execution.lifecycleManager.updatePaperPositionLifecycle(position, timestamp);
   }
 
   private closePaperPositionLifecycle(position: PaperPositionPayload, timestamp: number): void {
-    try {
-      const lifecycle = this.resolvePaperPositionLifecycle(position);
-      if (!lifecycle) {
-        return;
-      }
-
-      this.appendAndEmitPositionLifecycleEvent({
-        lifecycleId: lifecycle.id,
-        eventType: "POSITION_CLOSED",
-        timestamp,
-        payload: {
-          paperPositionId: position.paperPositionId,
-          entryOrderId: position.entryOrderId,
-          closePrice: position.closePrice,
-          closeReason: position.closeReason,
-          closedAt: position.closedAt
-        }
-      });
-
-      if (typeof position.realizedPnl === "number" && Number.isFinite(position.realizedPnl)) {
-        this.appendAndEmitPositionLifecycleEvent({
-          lifecycleId: lifecycle.id,
-          eventType: "PNL_REALIZED",
-          timestamp,
-          payload: {
-            paperPositionId: position.paperPositionId,
-            realizedPnl: position.realizedPnl,
-            closePrice: position.closePrice,
-            closeReason: position.closeReason
-          }
-        });
-      }
-
-      const closed = positionLifecycleRepository.closePositionLifecycle({
-        id: lifecycle.id,
-        closedAt: position.closedAt ?? timestamp
-      });
-      if (!closed) {
-        return;
-      }
-
-      const message: PositionLifecycleClosedMessage = {
-        type: "position_lifecycle_closed",
-        generatedAt: timestamp,
-        payload: closed
-      };
-      this.emit(message);
-      this.createDecisionReviewFromClosedLifecycle(closed, timestamp);
-    } catch (error) {
-      console.warn("Paper position lifecycle close integration failed", error);
-    }
+    this.execution.lifecycleManager.closePaperPositionLifecycle(position, timestamp);
   }
 
   private createDecisionReviewFromClosedLifecycle(
     lifecycle: PositionLifecycle,
     timestamp: number
   ): void {
-    try {
-      decisionReviewRepository.createDecisionReviewFromLifecycle({
-        lifecycle,
-        createdAt: timestamp
-      });
-    } catch (error) {
-      console.warn("DecisionReview creation from paper lifecycle failed", error);
-    }
+    this.execution.lifecycleManager.createDecisionReviewFromClosedLifecycle(lifecycle, timestamp);
   }
 
   private fillTouchedPaperLimitOrders(
@@ -2828,6 +3818,21 @@ export class BinanceOrderService {
       rejectReason: null
     };
 
+    this.execution.validatePaperCommand(
+      buildExecutionCommand({
+        type: "PAPER",
+        intentId: filledOrder.intentId,
+        decisionId: null,
+        symbol: filledOrder.symbol,
+        quantity: filledOrder.quantity,
+        metadata: {
+          clientOrderId: filledOrder.clientOrderId,
+          orderType: filledOrder.orderType,
+          dryRun: filledOrder.dryRun
+        }
+      }),
+      filledOrder
+    );
     orderRepository.upsertOrderState(filledOrder);
     this.emitOrderStatus(filledOrder);
     this.emitAuditEvent(
@@ -2884,6 +3889,845 @@ export class BinanceOrderService {
     }
   }
 
+  private generateRecoveryFingerprint(input: {
+    eventType: string;
+    symbol: string | null;
+    lifecycleId: string | null;
+    orderIntentId: string | null;
+    decisionContextId: string | null;
+    clientOrderId: string | null;
+    exchangeOrderId: string | null;
+    matchMethod: string | null;
+    reason: string;
+  }): string {
+    const parts = [
+      input.eventType,
+      input.symbol ?? "",
+      input.lifecycleId ?? "",
+      input.orderIntentId ?? "",
+      input.decisionContextId ?? "",
+      input.clientOrderId ?? "",
+      input.exchangeOrderId ?? "",
+      input.matchMethod ?? "",
+      input.reason
+    ];
+    return parts.join("|");
+  }
+
+  private applyLiveLifecycleClosureFromRecovery(input: {
+    lifecycle: PositionLifecycle;
+    relatedLocalOrders: OrderStatePayload[] | null;
+    closureEvaluation: LiveLifecycleClosureEvaluation;
+    recoveryRunId: string;
+    dedupWindowMs: number;
+    timestamp: number;
+  }): LiveLifecycleClosureApplyResult {
+    const emptyResult: LiveLifecycleClosureApplyResult = {
+      closed: false,
+      markerType: null,
+      skippedDuplicate: false,
+      error: null
+    };
+
+    if (
+      input.closureEvaluation.decision === "AMBIGUOUS" ||
+      input.closureEvaluation.decision === "CANNOT_CLOSE"
+    ) {
+      return emptyResult;
+    }
+
+    if (input.closureEvaluation.decision !== "CAN_CLOSE") {
+      return emptyResult;
+    }
+
+    const orderIntentId = normalizeText(input.lifecycle.orderIntentId);
+    if (
+      !orderIntentId ||
+      input.closureEvaluation.matchMethod !== "orderIntentId" ||
+      (input.lifecycle.status !== "OPEN" && input.lifecycle.status !== "MANAGING") ||
+      input.relatedLocalOrders === null ||
+      input.relatedLocalOrders.length === 0
+    ) {
+      return emptyResult;
+    }
+
+    const anchorOrder =
+      input.relatedLocalOrders.find(
+        (order) =>
+          normalizeText(order.intentId) === orderIntentId &&
+          normalizeText(order.parentOrderId) === null
+      ) ?? input.relatedLocalOrders[0];
+
+    if (!anchorOrder) {
+      return emptyResult;
+    }
+
+    const markerType = "LIVE_RECOVERY_LIFECYCLE_CLOSED";
+    const markerReason = "Evaluator returned CAN_CLOSE during live lifecycle recovery.";
+    const fingerprint = this.generateRecoveryFingerprint({
+      eventType: markerType,
+      symbol: input.lifecycle.symbol,
+      lifecycleId: input.lifecycle.id,
+      orderIntentId,
+      decisionContextId: input.lifecycle.decisionContextId ?? null,
+      clientOrderId: anchorOrder.clientOrderId,
+      exchangeOrderId: anchorOrder.exchangeOrderId,
+      matchMethod: input.closureEvaluation.matchMethod,
+      reason: markerReason
+    });
+    const existingMarker = orderRepository.findRecentOrderAuditEventByFingerprint(
+      markerType,
+      fingerprint,
+      input.dedupWindowMs
+    );
+
+    try {
+      const closed = this.execution.lifecycleManager.closeLiveRecoveryLifecycle({
+        lifecycle: input.lifecycle,
+        timestamp: input.timestamp,
+        payload: {
+          recoveryRunId: input.recoveryRunId,
+          reason: markerReason,
+          orderIntentId,
+          decisionContextId: input.lifecycle.decisionContextId,
+          symbol: input.lifecycle.symbol,
+          closureEvaluation: input.closureEvaluation
+        }
+      });
+
+      if (!existingMarker) {
+        this.emitAuditEvent(
+          anchorOrder,
+          markerType,
+          "Live lifecycle closed by recovery after evaluator returned CAN_CLOSE.",
+          {
+            recoveryRunId: input.recoveryRunId,
+            fingerprint,
+            reason: markerReason,
+            lifecycleId: closed.id,
+            orderIntentId,
+            decisionContextId: closed.decisionContextId,
+            symbol: closed.symbol,
+            closureEvaluation: input.closureEvaluation,
+            timestamp: input.timestamp
+          },
+          input.timestamp
+        );
+      }
+
+      return {
+        closed: true,
+        markerType,
+        skippedDuplicate: Boolean(existingMarker),
+        error: null
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const errorMarkerType = "LIVE_RECOVERY_LIFECYCLE_CLOSE_ERROR";
+      const errorReason = "Live lifecycle recovery closure failed.";
+      const errorFingerprint = this.generateRecoveryFingerprint({
+        eventType: errorMarkerType,
+        symbol: input.lifecycle.symbol,
+        lifecycleId: input.lifecycle.id,
+        orderIntentId,
+        decisionContextId: input.lifecycle.decisionContextId ?? null,
+        clientOrderId: anchorOrder.clientOrderId,
+        exchangeOrderId: anchorOrder.exchangeOrderId,
+        matchMethod: input.closureEvaluation.matchMethod,
+        reason: `${errorReason} ${message}`
+      });
+      const existingErrorMarker = orderRepository.findRecentOrderAuditEventByFingerprint(
+        errorMarkerType,
+        errorFingerprint,
+        input.dedupWindowMs
+      );
+
+      if (!existingErrorMarker) {
+        try {
+          this.emitAuditEvent(
+            anchorOrder,
+            errorMarkerType,
+            errorReason,
+            {
+              recoveryRunId: input.recoveryRunId,
+              fingerprint: errorFingerprint,
+              reason: errorReason,
+              error: message,
+              lifecycleId: input.lifecycle.id,
+              orderIntentId,
+              decisionContextId: input.lifecycle.decisionContextId,
+              symbol: input.lifecycle.symbol,
+              closureEvaluation: input.closureEvaluation,
+              timestamp: input.timestamp
+            },
+            input.timestamp
+          );
+        } catch (emitError) {
+          console.warn("Live lifecycle recovery close error marker failed", emitError);
+        }
+      }
+
+      console.warn("Live lifecycle recovery close failed", error);
+      return {
+        closed: false,
+        markerType: errorMarkerType,
+        skippedDuplicate: Boolean(existingErrorMarker),
+        error: message
+      };
+    }
+  }
+
+  private async recoverLivePositionLifecyclesAuditOnly(): Promise<void> {
+    const startedAt = Date.now();
+    const recoveryRunId = `live-recovery-${startedAt}-${randomUUID().slice(0, 8)}`;
+    const dedupWindowMs = 24 * 60 * 60 * 1000; // 24 hours
+
+    try {
+      const apiKey = this.options.apiKey;
+      const apiSecret = this.options.apiSecret;
+
+      if (!apiKey || !apiSecret) {
+        return;
+      }
+
+      const [exchangeOrders, exchangePositions] = await Promise.all([
+        getOpenOrders(this.restBase, apiKey, apiSecret),
+        fetchPositionRiskSnapshot(this.restBase, apiKey, apiSecret)
+      ]);
+
+      const localLifecycles = this.execution.lifecycleManager.listOpenPositionLifecycles(100);
+      const localActiveOrders = orderRepository.listActiveNonPaperOrders(100);
+
+      const exchangeOrderMap = new Map<string, RestFuturesOrder>();
+      for (const order of exchangeOrders) {
+        exchangeOrderMap.set(order.clientOrderId, order);
+        if (order.orderId) {
+          exchangeOrderMap.set(String(order.orderId), order);
+        }
+      }
+
+      const exchangePositionMap = new Map<string, RestPositionRiskV3>();
+      for (const position of exchangePositions) {
+        const key = `${position.symbol}_${position.positionSide}`;
+        exchangePositionMap.set(key, position);
+      }
+
+      const localOrderMap = new Map<string, OrderStatePayload>();
+      for (const order of localActiveOrders) {
+        localOrderMap.set(order.clientOrderId, order);
+        if (order.exchangeOrderId) {
+          localOrderMap.set(order.exchangeOrderId, order);
+        }
+      }
+
+      let lifecyclePositionClosedCount = 0;
+      let lifecycleOrphanCount = 0;
+      let orderOrphanCount = 0;
+      let exchangeOrderOrphanCount = 0;
+      let positionNoLifecycleCount = 0;
+      let lifecycleClosedByRecoveryCount = 0;
+      let lifecycleCloseErrorCount = 0;
+      let skippedDuplicateCount = 0;
+      const markerCountsByType: Record<string, number> = {};
+      const closureDecisionCounts: Record<LiveLifecycleClosureDecision, number> = {
+        CAN_CLOSE: 0,
+        CANNOT_CLOSE: 0,
+        AMBIGUOUS: 0
+      };
+
+      for (const lifecycle of localLifecycles) {
+        let relatedLocalOrders: OrderStatePayload[] | null = null;
+        if (lifecycle.orderIntentId) {
+          try {
+            relatedLocalOrders = orderRepository.listOrdersForIntentChain(lifecycle.orderIntentId);
+        } catch {
+          relatedLocalOrders = null;
+        }
+      }
+        const lifecycleSymbol = normalizeSymbol(lifecycle.symbol);
+        const exchangePositionsForClosure =
+          lifecycleSymbol &&
+          !exchangePositions.some((position) => normalizeSymbol(position.symbol) === lifecycleSymbol)
+            ? [...exchangePositions, buildFlatPositionRisk(lifecycleSymbol)]
+            : exchangePositions;
+        const closureEvaluation = evaluateLiveLifecycleClosure({
+          lifecycle,
+          relatedLocalOrders,
+          exchangeOpenOrders: exchangeOrders,
+          exchangePositions: exchangePositionsForClosure,
+          timestamp: startedAt
+        });
+        closureDecisionCounts[closureEvaluation.decision] += 1;
+
+        const exchangePosition = exchangePositionMap.get(`${lifecycle.symbol}_BOTH`) ||
+                                exchangePositionMap.get(`${lifecycle.symbol}_LONG`) ||
+                                exchangePositionMap.get(`${lifecycle.symbol}_SHORT`);
+
+        if (!exchangePosition) {
+          if (closureEvaluation.decision === "CAN_CLOSE") {
+            const closureApplyResult = this.applyLiveLifecycleClosureFromRecovery({
+              lifecycle,
+              relatedLocalOrders,
+              closureEvaluation: {
+                ...closureEvaluation,
+                reason:
+                  "Signed positionRisk returned no row for symbol; local terminal order chain and open-order evidence prove flat."
+              },
+              recoveryRunId,
+              dedupWindowMs,
+              timestamp: startedAt
+            });
+            if (closureApplyResult.closed) {
+              lifecycleClosedByRecoveryCount++;
+            }
+            if (closureApplyResult.error) {
+              lifecycleCloseErrorCount++;
+            }
+            if (closureApplyResult.skippedDuplicate) {
+              skippedDuplicateCount++;
+            }
+            if (closureApplyResult.markerType) {
+              markerCountsByType[closureApplyResult.markerType] =
+                (markerCountsByType[closureApplyResult.markerType] || 0) + 1;
+            }
+            continue;
+          }
+
+          lifecycleOrphanCount++;
+          const fingerprint = this.generateRecoveryFingerprint({
+            eventType: "LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION",
+            symbol: lifecycle.symbol,
+            lifecycleId: lifecycle.id,
+            orderIntentId: lifecycle.orderIntentId ?? null,
+            decisionContextId: lifecycle.decisionContextId ?? null,
+            clientOrderId: null,
+            exchangeOrderId: null,
+            matchMethod: "symbol",
+            reason: "Lifecycle exists but no exchange position found for symbol."
+          });
+          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+            "LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION",
+            fingerprint,
+            dedupWindowMs
+          );
+          if (existing) {
+            skippedDuplicateCount++;
+            markerCountsByType["LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION"] =
+              (markerCountsByType["LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION"] || 0) + 1;
+            continue;
+          }
+          const dummyOrder: OrderStatePayload = {
+            orderId: "",
+            intentId: lifecycle.orderIntentId ?? null,
+            symbol: lifecycle.symbol,
+            side: "BUY",
+            orderType: "MARKET",
+            quantity: 0,
+            price: null,
+            stopPrice: null,
+            stopLossPrice: null,
+            takeProfitPrice: null,
+            status: "NEW",
+            clientOrderId: "",
+            exchangeOrderId: null,
+            sourceWindowId: null,
+            parentOrderId: null,
+            protectiveKind: null,
+            dryRun: false,
+            reduceOnly: false,
+            executedQty: 0,
+            avgPrice: null,
+            lastFilledQty: null,
+            realizedPnl: null,
+            commission: null,
+            commissionAsset: null,
+            lastExecutionType: null,
+            lastTradeTime: null,
+            rejectReason: null,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+            lastEventSource: "paper_engine"
+          };
+          this.emitAuditEvent(
+            dummyOrder,
+            "LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION",
+            "Lifecycle exists but no exchange position found for symbol.",
+            {
+              recoveryRunId,
+              fingerprint,
+              reason: "Lifecycle exists but no exchange position found for symbol.",
+              symbol: lifecycle.symbol,
+              lifecycleId: lifecycle.id,
+              orderIntentId: lifecycle.orderIntentId,
+              decisionContextId: lifecycle.decisionContextId,
+              clientOrderId: null,
+              exchangeOrderId: null,
+              exchangePositionAmt: null,
+              matchMethod: "symbol",
+              closureEvaluation,
+              timestamp: startedAt
+            },
+            startedAt
+          );
+          markerCountsByType["LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION"] =
+            (markerCountsByType["LIVE_RECOVERY_LIFECYCLE_ORPHAN_NO_POSITION"] || 0) + 1;
+          continue;
+        }
+
+        const positionAmt = safeNumber(exchangePosition.positionAmt);
+        if (Math.abs(positionAmt) <= 0) {
+          if (closureEvaluation.decision === "CAN_CLOSE") {
+            const closureApplyResult = this.applyLiveLifecycleClosureFromRecovery({
+              lifecycle,
+              relatedLocalOrders,
+              closureEvaluation,
+              recoveryRunId,
+              dedupWindowMs,
+              timestamp: startedAt
+            });
+            if (closureApplyResult.closed) {
+              lifecycleClosedByRecoveryCount++;
+            }
+            if (closureApplyResult.error) {
+              lifecycleCloseErrorCount++;
+            }
+            if (closureApplyResult.skippedDuplicate) {
+              skippedDuplicateCount++;
+            }
+            if (closureApplyResult.markerType) {
+              markerCountsByType[closureApplyResult.markerType] =
+                (markerCountsByType[closureApplyResult.markerType] || 0) + 1;
+            }
+            continue;
+          }
+
+          lifecyclePositionClosedCount++;
+          const fingerprint = this.generateRecoveryFingerprint({
+            eventType: "LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED",
+            symbol: lifecycle.symbol,
+            lifecycleId: lifecycle.id,
+            orderIntentId: lifecycle.orderIntentId ?? null,
+            decisionContextId: lifecycle.decisionContextId ?? null,
+            clientOrderId: null,
+            exchangeOrderId: null,
+            matchMethod: "symbol",
+            reason: "Lifecycle is OPEN/MANAGING but exchange positionAmt is zero."
+          });
+          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+            "LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED",
+            fingerprint,
+            dedupWindowMs
+          );
+          if (existing) {
+            skippedDuplicateCount++;
+            markerCountsByType["LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED"] =
+              (markerCountsByType["LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED"] || 0) + 1;
+            continue;
+          }
+          const dummyOrder: OrderStatePayload = {
+            orderId: "",
+            intentId: lifecycle.orderIntentId ?? null,
+            symbol: lifecycle.symbol,
+            side: "BUY",
+            orderType: "MARKET",
+            quantity: 0,
+            price: null,
+            stopPrice: null,
+            stopLossPrice: null,
+            takeProfitPrice: null,
+            status: "NEW",
+            clientOrderId: "",
+            exchangeOrderId: null,
+            sourceWindowId: null,
+            parentOrderId: null,
+            protectiveKind: null,
+            dryRun: false,
+            reduceOnly: false,
+            executedQty: 0,
+            avgPrice: null,
+            lastFilledQty: null,
+            realizedPnl: null,
+            commission: null,
+            commissionAsset: null,
+            lastExecutionType: null,
+            lastTradeTime: null,
+            rejectReason: null,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+            lastEventSource: "paper_engine"
+          };
+          this.emitAuditEvent(
+            dummyOrder,
+            "LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED",
+            "Lifecycle is OPEN/MANAGING but exchange positionAmt is zero.",
+            {
+              recoveryRunId,
+              fingerprint,
+              reason: "Lifecycle is OPEN/MANAGING but exchange positionAmt is zero.",
+              symbol: lifecycle.symbol,
+              lifecycleId: lifecycle.id,
+              orderIntentId: lifecycle.orderIntentId,
+              decisionContextId: lifecycle.decisionContextId,
+              clientOrderId: null,
+              exchangeOrderId: null,
+              exchangePositionAmt: positionAmt,
+              matchMethod: "symbol",
+              closureEvaluation,
+              timestamp: startedAt
+            },
+            startedAt
+          );
+          markerCountsByType["LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED"] =
+            (markerCountsByType["LIVE_RECOVERY_LIFECYCLE_POSITION_CLOSED"] || 0) + 1;
+        }
+      }
+
+      for (const order of localActiveOrders) {
+        const exchangeOrder = exchangeOrderMap.get(order.clientOrderId) ||
+                               exchangeOrderMap.get(order.exchangeOrderId || "");
+
+        if (!exchangeOrder) {
+          orderOrphanCount++;
+          const fingerprint = this.generateRecoveryFingerprint({
+            eventType: "LIVE_RECOVERY_ORDER_NO_EXCHANGE_ORDER",
+            symbol: order.symbol,
+            lifecycleId: null,
+            orderIntentId: order.intentId,
+            decisionContextId: null,
+            clientOrderId: order.clientOrderId,
+            exchangeOrderId: order.exchangeOrderId,
+            matchMethod: "clientOrderId",
+            reason: "Local active order has no matching exchange open order."
+          });
+          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+            "LIVE_RECOVERY_ORDER_NO_EXCHANGE_ORDER",
+            fingerprint,
+            dedupWindowMs
+          );
+          if (existing) {
+            skippedDuplicateCount++;
+            markerCountsByType["LIVE_RECOVERY_ORDER_NO_EXCHANGE_ORDER"] =
+              (markerCountsByType["LIVE_RECOVERY_ORDER_NO_EXCHANGE_ORDER"] || 0) + 1;
+            continue;
+          }
+          this.emitAuditEvent(
+            order,
+            "LIVE_RECOVERY_ORDER_NO_EXCHANGE_ORDER",
+            "Local active order has no matching exchange open order.",
+            {
+              recoveryRunId,
+              fingerprint,
+              reason: "Local active order has no matching exchange open order.",
+              symbol: order.symbol,
+              lifecycleId: null,
+              orderIntentId: order.intentId,
+              decisionContextId: null,
+              clientOrderId: order.clientOrderId,
+              exchangeOrderId: order.exchangeOrderId,
+              exchangePositionAmt: null,
+              matchMethod: "clientOrderId",
+              timestamp: startedAt
+            },
+            startedAt
+          );
+          markerCountsByType["LIVE_RECOVERY_ORDER_NO_EXCHANGE_ORDER"] =
+            (markerCountsByType["LIVE_RECOVERY_ORDER_NO_EXCHANGE_ORDER"] || 0) + 1;
+        }
+      }
+
+      for (const exchangeOrder of exchangeOrders) {
+        const localOrder = localOrderMap.get(exchangeOrder.clientOrderId) ||
+                           localOrderMap.get(exchangeOrder.orderId ? String(exchangeOrder.orderId) : "");
+
+        if (!localOrder) {
+          exchangeOrderOrphanCount++;
+          const fingerprint = this.generateRecoveryFingerprint({
+            eventType: "LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER",
+            symbol: exchangeOrder.symbol,
+            lifecycleId: null,
+            orderIntentId: null,
+            decisionContextId: null,
+            clientOrderId: exchangeOrder.clientOrderId,
+            exchangeOrderId: exchangeOrder.orderId ? String(exchangeOrder.orderId) : null,
+            matchMethod: "clientOrderId",
+            reason: "Exchange open order has no matching local order."
+          });
+          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+            "LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER",
+            fingerprint,
+            dedupWindowMs
+          );
+          if (existing) {
+            skippedDuplicateCount++;
+            markerCountsByType["LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER"] =
+              (markerCountsByType["LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER"] || 0) + 1;
+            continue;
+          }
+          const dummyOrder: OrderStatePayload = {
+            orderId: exchangeOrder.orderId ? String(exchangeOrder.orderId) : "",
+            intentId: null,
+            symbol: exchangeOrder.symbol,
+            side: exchangeOrder.side as "BUY" | "SELL",
+            orderType: exchangeOrder.type as OrderType,
+            quantity: safeNumber(exchangeOrder.origQty),
+            price: safeNumber(exchangeOrder.price),
+            stopPrice: null,
+            stopLossPrice: null,
+            takeProfitPrice: null,
+            status: exchangeOrder.status as OrderLifecycleStatus,
+            clientOrderId: exchangeOrder.clientOrderId,
+            exchangeOrderId: exchangeOrder.orderId ? String(exchangeOrder.orderId) : null,
+            sourceWindowId: null,
+            parentOrderId: null,
+            protectiveKind: null,
+            dryRun: false,
+            reduceOnly: Boolean(exchangeOrder.reduceOnly),
+            executedQty: safeNumber(exchangeOrder.executedQty),
+            avgPrice: safeNumber(exchangeOrder.avgPrice),
+            lastFilledQty: null,
+            realizedPnl: null,
+            commission: null,
+            commissionAsset: null,
+            lastExecutionType: null,
+            lastTradeTime: null,
+            rejectReason: null,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+            lastEventSource: "paper_engine"
+          };
+          this.emitAuditEvent(
+            dummyOrder,
+            "LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER",
+            "Exchange open order has no matching local order.",
+            {
+              recoveryRunId,
+              fingerprint,
+              reason: "Exchange open order has no matching local order.",
+              symbol: exchangeOrder.symbol,
+              lifecycleId: null,
+              orderIntentId: null,
+              decisionContextId: null,
+              clientOrderId: exchangeOrder.clientOrderId,
+              exchangeOrderId: exchangeOrder.orderId ? String(exchangeOrder.orderId) : null,
+              exchangePositionAmt: null,
+              matchMethod: "clientOrderId",
+              timestamp: startedAt
+            },
+            startedAt
+          );
+          markerCountsByType["LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER"] =
+            (markerCountsByType["LIVE_RECOVERY_EXCHANGE_ORDER_NO_LOCAL_ORDER"] || 0) + 1;
+        }
+      }
+
+      for (const position of exchangePositions) {
+        const positionAmt = safeNumber(position.positionAmt);
+        if (Math.abs(positionAmt) <= 0) {
+          continue;
+        }
+
+        const hasLifecycle = localLifecycles.some(
+          lifecycle => lifecycle.symbol === position.symbol
+        );
+
+        if (!hasLifecycle) {
+          positionNoLifecycleCount++;
+          const fingerprint = this.generateRecoveryFingerprint({
+            eventType: "LIVE_RECOVERY_POSITION_NO_LIFECYCLE",
+            symbol: position.symbol,
+            lifecycleId: null,
+            orderIntentId: null,
+            decisionContextId: null,
+            clientOrderId: null,
+            exchangeOrderId: null,
+            matchMethod: "symbol",
+            reason: "Exchange position exists but no lifecycle can be safely matched."
+          });
+          const existing = orderRepository.findRecentOrderAuditEventByFingerprint(
+            "LIVE_RECOVERY_POSITION_NO_LIFECYCLE",
+            fingerprint,
+            dedupWindowMs
+          );
+          if (existing) {
+            skippedDuplicateCount++;
+            markerCountsByType["LIVE_RECOVERY_POSITION_NO_LIFECYCLE"] =
+              (markerCountsByType["LIVE_RECOVERY_POSITION_NO_LIFECYCLE"] || 0) + 1;
+            continue;
+          }
+          const dummyOrder: OrderStatePayload = {
+            orderId: "",
+            intentId: null,
+            symbol: position.symbol,
+            side: "BUY",
+            orderType: "MARKET",
+            quantity: 0,
+            price: null,
+            stopPrice: null,
+            stopLossPrice: null,
+            takeProfitPrice: null,
+            status: "NEW",
+            clientOrderId: "",
+            exchangeOrderId: null,
+            sourceWindowId: null,
+            parentOrderId: null,
+            protectiveKind: null,
+            dryRun: false,
+            reduceOnly: false,
+            executedQty: 0,
+            avgPrice: null,
+            lastFilledQty: null,
+            realizedPnl: null,
+            commission: null,
+            commissionAsset: null,
+            lastExecutionType: null,
+            lastTradeTime: null,
+            rejectReason: null,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+            lastEventSource: "paper_engine"
+          };
+          this.emitAuditEvent(
+            dummyOrder,
+            "LIVE_RECOVERY_POSITION_NO_LIFECYCLE",
+            "Exchange position exists but no lifecycle can be safely matched.",
+            {
+              recoveryRunId,
+              fingerprint,
+              reason: "Exchange position exists but no lifecycle can be safely matched.",
+              symbol: position.symbol,
+              lifecycleId: null,
+              orderIntentId: null,
+              decisionContextId: null,
+              clientOrderId: null,
+              exchangeOrderId: null,
+              exchangePositionAmt: positionAmt,
+              matchMethod: "symbol",
+              timestamp: startedAt
+            },
+            startedAt
+          );
+          markerCountsByType["LIVE_RECOVERY_POSITION_NO_LIFECYCLE"] =
+            (markerCountsByType["LIVE_RECOVERY_POSITION_NO_LIFECYCLE"] || 0) + 1;
+        }
+      }
+
+      const finishedAt = Date.now();
+      const durationMs = finishedAt - startedAt;
+      const emittedMarkerCount = Object.values(markerCountsByType).reduce((sum, count) => sum + count, 0);
+
+      const summaryAnchor =
+        localActiveOrders[0] ??
+        localLifecycles
+          .map((lifecycle) =>
+            lifecycle.orderIntentId
+              ? orderRepository.getOrderByIntentId(lifecycle.orderIntentId)
+              : null
+          )
+          .find((order): order is OrderStatePayload => order !== null);
+      if (summaryAnchor) {
+        this.emitAuditEvent(
+          summaryAnchor,
+          "LIVE_RECOVERY_SUMMARY",
+          "Live lifecycle recovery audit summary.",
+          {
+            recoveryRunId,
+            startedAt,
+            finishedAt,
+            durationMs,
+            localLifecycleCount: localLifecycles.length,
+            localActiveOrderCount: localActiveOrders.length,
+            exchangeOpenOrderCount: exchangeOrders.length,
+            exchangeOpenPositionCount: exchangePositions.length,
+            emittedMarkerCount,
+            skippedDuplicateCount,
+            errors: null,
+            markerCountsByType,
+            closureDecisionCounts,
+            summary: {
+              lifecyclePositionClosed: lifecyclePositionClosedCount,
+              lifecycleClosedByRecovery: lifecycleClosedByRecoveryCount,
+              lifecycleCloseError: lifecycleCloseErrorCount,
+              lifecycleOrphan: lifecycleOrphanCount,
+              orderOrphan: orderOrphanCount,
+              exchangeOrderOrphan: exchangeOrderOrphanCount,
+              positionNoLifecycle: positionNoLifecycleCount,
+              localLifecyclesChecked: localLifecycles.length,
+              localActiveOrdersChecked: localActiveOrders.length,
+              exchangeOrdersChecked: exchangeOrders.length,
+              exchangePositionsChecked: exchangePositions.length
+            }
+          },
+          startedAt
+        );
+      }
+    } catch (error) {
+      const finishedAt = Date.now();
+      const durationMs = finishedAt - startedAt;
+      const dummyOrder: OrderStatePayload = {
+        orderId: "",
+        intentId: null,
+        symbol: "",
+        side: "BUY",
+        orderType: "MARKET",
+        quantity: 0,
+        price: null,
+        stopPrice: null,
+        stopLossPrice: null,
+        takeProfitPrice: null,
+        status: "NEW",
+        clientOrderId: "",
+        exchangeOrderId: null,
+        sourceWindowId: null,
+        parentOrderId: null,
+        protectiveKind: null,
+        dryRun: false,
+        reduceOnly: false,
+        executedQty: 0,
+        avgPrice: null,
+        lastFilledQty: null,
+        realizedPnl: null,
+        commission: null,
+        commissionAsset: null,
+        lastExecutionType: null,
+        lastTradeTime: null,
+        rejectReason: null,
+        createdAt: startedAt,
+        updatedAt: startedAt,
+        lastEventSource: "paper_engine"
+      };
+      this.emitAuditEvent(
+        dummyOrder,
+        "LIVE_RECOVERY_ERROR",
+        "Live lifecycle recovery audit failed.",
+        {
+          recoveryRunId,
+          startedAt,
+          finishedAt,
+          durationMs,
+          localLifecycleCount: 0,
+          localActiveOrderCount: 0,
+          exchangeOpenOrderCount: 0,
+          exchangeOpenPositionCount: 0,
+          emittedMarkerCount: 0,
+          skippedDuplicateCount: 0,
+          errors: error instanceof Error ? error.message : String(error),
+          markerCountsByType: {},
+          reason: "Live lifecycle recovery audit failed.",
+          symbol: null,
+          lifecycleId: null,
+          orderIntentId: null,
+          decisionContextId: null,
+          clientOrderId: null,
+          exchangeOrderId: null,
+          exchangePositionAmt: null,
+          matchMethod: null,
+          timestamp: startedAt
+        },
+        startedAt
+      );
+    }
+  }
+
   private completePaperMarketOrder(
     order: OrderStatePayload,
     executionPrice: number,
@@ -2918,6 +4762,21 @@ export class BinanceOrderService {
       lastEventSource: "paper_engine"
     };
 
+    this.execution.validatePaperCommand(
+      buildExecutionCommand({
+        type: "PAPER",
+        intentId: filledOrder.intentId,
+        decisionId: links.decisionContextId ?? null,
+        symbol: filledOrder.symbol,
+        quantity: filledOrder.quantity,
+        metadata: {
+          clientOrderId: filledOrder.clientOrderId,
+          orderType: filledOrder.orderType,
+          dryRun: filledOrder.dryRun
+        }
+      }),
+      filledOrder
+    );
     orderRepository.upsertOrderState(filledOrder);
     this.emitOrderStatus(filledOrder);
     this.emitAuditEvent(
@@ -3463,6 +5322,67 @@ export class BinanceOrderService {
     }
   }
 
+  private replaySubmittedIntentInFlight(intentId: string): void {
+    const currentOrder = orderRepository.getOrderByIntentId(intentId);
+
+    if (currentOrder) {
+      this.emitAuditEvent(
+        currentOrder,
+        "duplicate_intent_in_flight",
+        "Duplicate intentId ignored because a durable pre-submit order intent audit already exists.",
+        {
+          gateCode: "ORDER_INTENT_IN_FLIGHT"
+        },
+        Date.now()
+      );
+      this.emitOrderStatus(currentOrder);
+    }
+
+    this.emitOrderError({
+      intentId,
+      code: "ORDER_INTENT_IN_FLIGHT",
+      message:
+        "ORDER_INTENT_IN_FLIGHT: non-paper PLACE_ORDER was already durably submitted before final response persistence.",
+      retriable: false
+    });
+  }
+
+  private replayCancelIntentInFlight(
+    intentId: string,
+    payload: LiveSubmittedCancelIntentAuditPayload | null
+  ): void {
+    const currentOrder =
+      (payload?.targetOrderId ? orderRepository.getOrderByOrderId(payload.targetOrderId) : null) ??
+      (payload?.targetClientOrderId
+        ? orderRepository.getOrderByClientOrderId(payload.targetClientOrderId)
+        : null);
+
+    if (currentOrder) {
+      this.emitAuditEvent(
+        {
+          ...currentOrder,
+          intentId
+        },
+        "duplicate_cancel_intent_in_flight",
+        "Duplicate cancel intent ignored because a durable pre-submit cancel audit already exists.",
+        {
+          gateCode: "CANCEL_INTENT_IN_FLIGHT",
+          classification: payload?.classification ?? null
+        },
+        Date.now()
+      );
+      this.emitOrderStatus(currentOrder);
+    }
+
+    this.emitOrderError({
+      intentId,
+      code: "CANCEL_INTENT_IN_FLIGHT",
+      message:
+        "CANCEL_INTENT_IN_FLIGHT: non-paper CANCEL_ORDER was already durably submitted before final response persistence.",
+      retriable: false
+    });
+  }
+
   private persistIntentError(
     meta: NormalizedIntentMeta,
     error: {
@@ -3585,19 +5505,7 @@ export class BinanceOrderService {
     payload: unknown,
     timestamp: number
   ): void {
-    const event = orderRepository.appendAuditEvent({
-      order,
-      eventType,
-      message,
-      payload,
-      timestamp
-    });
-
-    this.emit({
-      type: "order_audit_event",
-      generatedAt: timestamp,
-      payload: event
-    });
+    this.execution.audit.emitAuditEvent({ order, eventType, message, payload, timestamp });
   }
 
   private emitOrderStatus(order: OrderStatePayload): void {

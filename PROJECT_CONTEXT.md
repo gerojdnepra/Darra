@@ -34,6 +34,72 @@
 - `electron-builder`
 - `esbuild`
 - preload bridge через `desktop/preload.cjs`
+- desktop shell is now window-native, not dashboard-first
+- `dashboard` is now `Legacy Workspace`
+
+Desktop shell architecture:
+
+```text
+Workspace = Intent
+Layout = Geometry
+Monitor Profile = Physical Topology
+Window Group = Symbol Context
+```
+
+Desktop PR status:
+
+- PR-0 Window Manager First: PASS
+- PR-1 Saved Layouts: PASS
+- PR-2A Scenario Workspaces: PASS
+- PR-3 Monitor Profiles v1: PASS
+- PR-4 Window Groups v1: PASS
+- PR-S1 Atomic Active Layout Persistence: PASS
+- PR-S2 Deterministic Shutdown Snapshot: PASS with limited UI smoke
+- PR-S3 DesktopManagedWindowKey Registry Hardening: PASS
+- PR-S4 Monitor Topology Matching Hardening: PASS
+- PR-M1 Passive Runtime Telemetry Spine: PASS
+- PR-M2 Controlled Stress Harness: PASS
+- PR-M3 Metrics Run Framing: PASS
+- PR-M5 Restore Stress Harness: PASS
+- PR-O1 Stress/Open Idempotency Hardening: PASS
+- PR-P1 Restore Batch Mode: PASS
+- PR-P2 Layout Atomic Write Retry Hardening: PASS
+
+PR-S3 notes:
+
+- real drift found and fixed: `replay` was missing from `terminalWindowKeys`
+- `terminalWindowKeys` is now derived from `dashboard + desktopManagedModuleSections`
+- `desktop` now has `npm run check:desktop-window-registry`
+- a new managed window key should no longer be addable silently without registry verification failing
+- PR-S3 is registry hardening, not a shared-registry refactor
+
+PR-S4 notes:
+
+- display resolution now uses:
+  - exact `displayId`
+  - bounds/display matching for active layout restore
+  - fingerprint matching through `capturedDisplays` for monitor profiles
+  - primary fallback
+- matching is conservative: ambiguous topology falls back to primary
+- PR-S4 did not change schemas, startup behavior, workspaces, or window groups
+- manual multi-monitor QA is still recommended
+
+Desktop stress/restore findings:
+
+- PR-M4 high-window stress established a practical working target of 20-30 windows.
+- The hard current cap is 33 non-dashboard managed windows.
+- Desktop state payload size around 7-8 KB is not the bottleneck.
+- Broadcast/lifecycle churn is the current bottleneck candidate.
+- After PR-P1, restore stress restored 33 windows in about 2447 ms.
+- PR-P1 reduced restore broadcasts from `N+1` to `1`.
+- PR-P2 hardens atomic layout/registry writes with bounded retries for `EPERM`, `EBUSY` and `ENOTEMPTY`.
+- PR-P2 preserves atomic safety: no silent corruption, and retry exhaustion still throws.
+
+Window Groups v1 rules:
+
+- metadata-only
+- `group.symbol` does not change selected/chart/order/risk symbol
+- backend/risk/order/execution behavior was not changed
 
 ### Внешние интеграции
 
@@ -99,6 +165,108 @@
   `ALLOW_REMOTE_ENV_BINANCE_ACCOUNT_ACCESS=true` is explicitly enabled.
 - The desktop shell currently does not use Electron `safeStorage` for persisted Binance account
   secrets.
+
+### Validated runtime evidence: SG-007G / SG-007R / SG-008A
+
+Current status summary:
+
+- Desktop Shell: READY
+- Paper Trading: READY
+- Testnet Trading: READY for current gated testnet/preflight evidence
+- Live Trading: NOT READY
+
+Doctrine preserved:
+
+- UNKNOWN == NOT READY.
+- No live trading enablement is implied by this evidence.
+- SG-008A proves non-mutating testnet preflight and Safe-To-Add only; it does not prove real order submit/cancel or broad unattended execution.
+- Execution changes must preserve `UnifiedSignal -> TradeDecisionContext -> OrderIntent -> PositionLifecycle -> DecisionReviewObject`.
+- Backend proof > persistence proof > runtime proof remains the validation order.
+
+SG-007G Credential-Safe Testnet Runtime Harness: PASS.
+
+- intendedMode: TESTNET
+- restEnvironment: TESTNET
+- wsEnvironment: TESTNET
+- restBase: `https://testnet.binancefuture.com`
+- wsBase: `wss://stream.binancefuture.com`
+- credential presence: configured and redacted; no secrets printed
+- REST authenticated account access: PASS
+- listenKey creation: PASS
+- private WS connection: PASS
+- account snapshot access: PASS
+- leverage bracket retrieval: PASS
+- preflight readiness inputs: PASS
+- liveReadinessMode: TESTNET_ONLY
+- liveReadinessReady: true
+
+SG-007R configured runtime rollup: PASS.
+
+- private WS: PASS
+- account snapshot: PASS
+- position snapshot: PASS
+- leverage bracket: PASS
+- non-mutating order preflight readiness inputs: PASS
+- Safe-To-Add prerequisite evidence: PASS for SG-008A scope
+
+SG-008A Testnet Non-Mutating Preflight Smoke: PASS.
+
+- Final preflight status: ACCEPTED
+- Reason: Preflight validation accepted and Safe-To-Add allowed the minimal testnet order.
+- No order was submitted.
+- No cancel was sent.
+- No lifecycle was mutated.
+- No DecisionReview was created.
+- No DB writes were performed by this smoke.
+
+SG-008A no-position-row evidence:
+
+- positionCount: `0`
+- btcusdtPresent: `false`
+- btcusdtMarkPricePresent: `false`
+- selectedSource: `premiumIndex markPrice`
+- selectedEndpoint: `/fapi/v1/premiumIndex`
+- selectedPrice: `64088.54396739`
+- positionRiskRowPresent: `false`
+
+BTCUSDT exchange filters:
+
+- tickSize: `0.1`
+- stepSize: `0.0001`
+- minQty: `0.0001`
+- minNotional: `50`
+- pricePrecision: `2`
+- quantityPrecision: `4`
+
+Preflight evaluation:
+
+- symbol: `BTCUSDT`
+- side: `BUY`
+- type: `MARKET`
+- quantity: `0.0008`
+- normalizedQuantity: `0.0008`
+- marketPriceSource: `premiumIndex markPrice`
+- marketPriceEndpoint: `/fapi/v1/premiumIndex`
+- normalizedPrice: `64088.5`
+- notional: `51.270835173912`
+- accepted: `true`
+- failedChecks: `[]`
+
+Safe-To-Add:
+
+- status: `ALLOW`
+- allowed: `true`
+- blockers: `[]`
+- warnings: `[]`
+- accountBlockers: `[]`
+
+SG-008A.1 mark price fallback order:
+
+1. `positionRisk markPrice`
+2. public testnet `/fapi/v1/premiumIndex?symbol=BTCUSDT`
+3. public testnet `/fapi/v1/ticker/price?symbol=BTCUSDT`
+
+This specifically proves the no-position-row scenario: `positionRisk` had no BTCUSDT row, but the non-mutating preflight still succeeded using `premiumIndex markPrice`.
 
 ## 3. Источники данных
 

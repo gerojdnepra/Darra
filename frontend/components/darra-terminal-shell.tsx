@@ -19,7 +19,11 @@ import { localBackendWsUrl, normalizeLocalBackendWsUrl } from "@/lib/backend-url
 import { compactUsd, formatClock, formatPercent, formatPrice } from "@/lib/format";
 import { defaultInterfaceLanguage, normalizeInterfaceLanguage } from "@/lib/interface-language";
 import {
+  defaultWorkspacePresetId,
+  desktopModuleSections,
   desktopDashboardPanels,
+  desktopManagedModuleSections,
+  getWorkspacePreset,
   normalizeDashboardPanelLayout,
   normalizeDashboardPanelOrder
 } from "@/lib/module-sections";
@@ -147,6 +151,17 @@ const historyWindowMs = 18 * 60_000;
 const maxHistoryPoints = 180;
 const defaultBackendWsUrl = localBackendWsUrl;
 
+const createDefaultVisibleSections = (): NonNullable<
+  PersistedState["uiPreferences"]
+>["visibleSections"] => {
+  const preset = getWorkspacePreset(defaultWorkspacePresetId);
+  const visibleSet = new Set(preset.visibleSections);
+
+  return Object.fromEntries(
+    desktopModuleSections.map((section) => [section, visibleSet.has(section)])
+  ) as NonNullable<PersistedState["uiPreferences"]>["visibleSections"];
+};
+
 const defaultPersistedState: PersistedState = {
   backendWsUrl: defaultBackendWsUrl,
   settings: defaultDashboardSettings,
@@ -209,40 +224,7 @@ const defaultPersistedState: PersistedState = {
       health: false,
       replay: false
     },
-    visibleSections: {
-      overview: true,
-      filters: true,
-      screener: true,
-      account: true,
-      activeTrades: true,
-      riskCenter: true,
-      correlationHeatmap: true,
-      varPanel: true,
-      fundingBasis: true,
-      marketFlow: true,
-      chartPanel: true,
-      decisionStack: true,
-      symbolDetailRail: true,
-      marketStory: true,
-      signalIntelligence: true,
-      metaRegimeGovernor: true,
-      positionRiskOrchestrator: true,
-      regimeMemory: true,
-      regimePrediction: true,
-      regimeFeedbackCalibration: true,
-      pnlAttribution: true,
-      signalStatistics: true,
-      learningCenter: true,
-      tradeJournal: true,
-      watchlist: true,
-      volumeMilestones: true,
-      volumeThresholdMilestones: true,
-      alerts: true,
-      frameTelemetry: true,
-      renderTelemetry: true,
-      health: true,
-      replay: true
-    },
+    visibleSections: createDefaultVisibleSections(),
     dashboardLayoutMode: "free",
     dashboardLayoutModePinned: false,
     dashboardPanelOrder: desktopDashboardPanels,
@@ -254,44 +236,14 @@ const defaultPersistedState: PersistedState = {
 
 const defaultUiPreferences = defaultPersistedState.uiPreferences!;
 
-const terminalWindowKeys: DesktopManagedWindowKey[] = [
+const terminalWindowKeys: readonly DesktopManagedWindowKey[] = [
   "dashboard",
-  "overview",
-  "filters",
-  "screener",
-  "account",
-  "activeTrades",
-  "riskCenter",
-  "correlationHeatmap",
-  "varPanel",
-  "fundingBasis",
-  "marketFlow",
-  "chartPanel",
-  "decisionStack",
-  "symbolDetailRail",
-  "marketStory",
-  "signalIntelligence",
-  "metaRegimeGovernor",
-  "positionRiskOrchestrator",
-  "regimeMemory",
-  "regimePrediction",
-  "regimeFeedbackCalibration",
-  "pnlAttribution",
-  "signalStatistics",
-  "learningCenter",
-  "tradeJournal",
-  "watchlist",
-  "volumeMilestones",
-  "volumeThresholdMilestones",
-  "alerts",
-  "frameTelemetry",
-  "renderTelemetry",
-  "health"
+  ...desktopManagedModuleSections
 ];
 
 const windowLabels: Record<InterfaceLanguage, Record<DesktopManagedWindowKey, string>> = {
   en: {
-    dashboard: "Dashboard",
+    dashboard: "Advanced Legacy Workspace",
     overview: "Overview",
     filters: "Filters",
     screener: "Signal",
@@ -302,70 +254,72 @@ const windowLabels: Record<InterfaceLanguage, Record<DesktopManagedWindowKey, st
     varPanel: "VaR",
     fundingBasis: "Funding/Basis",
     marketFlow: "Market Flow",
-    chartPanel: "Signal Context",
+    chartPanel: "Context",
     decisionStack: "Decision Pipeline",
     symbolDetailRail: "Why This Matters Now",
     marketStory: "Signal Story",
-    signalIntelligence: "Signal Intelligence",
-    metaRegimeGovernor: "Meta Regime Governor",
+    signalIntelligence: "Advanced Signal Intelligence",
+    metaRegimeGovernor: "Advanced Meta Regime Governor",
     positionRiskOrchestrator: "Position Risk Orchestrator",
-    regimeMemory: "Regime Memory",
-    regimePrediction: "Regime Prediction",
-    regimeFeedbackCalibration: "Regime Feedback Calibration",
+    regimeMemory: "Advanced Regime Memory",
+    regimePrediction: "Advanced Regime Prediction",
+    regimeFeedbackCalibration: "Advanced Regime Feedback Calibration",
     pnlAttribution: "PnL Attribution",
     signalStatistics: "Review Statistics",
-    learningCenter: "Research",
-    tradeJournal: "Decision Review",
+    learningCenter: "Experimental Research",
+    tradeJournal: "Review",
+    knowledgeWorkspace: "Knowledge",
     watchlist: "Watchlist",
     volumeMilestones: "100M Volume",
     volumeThresholdMilestones: "1-100M Volume",
-    frameTelemetry: "Frame Telemetry",
-    renderTelemetry: "Render Telemetry",
-    alerts: "Decision Inbox",
+    frameTelemetry: "Experimental Frame Telemetry",
+    renderTelemetry: "Experimental Render Telemetry",
+    alerts: "Decision",
     health: "Feed Health",
-    replay: "Decision Replay"
+    replay: "Replay"
   },
   ru: {
-    frameTelemetry: "Frame Telemetry",
-    renderTelemetry: "Render Telemetry",
+    frameTelemetry: "Experimental Frame Telemetry",
+    renderTelemetry: "Experimental Render Telemetry",
     riskCenter: "Risk Center",
     correlationHeatmap: "Correlation Heatmap",
     varPanel: "VaR",
     fundingBasis: "Funding/Basis",
     marketFlow: "Market Flow",
-    chartPanel: "Chart Panel",
+    chartPanel: "Context",
     decisionStack: "Decision Stack",
     symbolDetailRail: "Symbol Detail Rail",
     marketStory: "Market Story",
-    signalIntelligence: "Signal Intelligence",
-    metaRegimeGovernor: "Meta Regime Governor",
+    signalIntelligence: "Advanced Signal Intelligence",
+    metaRegimeGovernor: "Advanced Meta Regime Governor",
     positionRiskOrchestrator: "Position Risk Orchestrator",
-    regimeMemory: "Regime Memory",
-    regimePrediction: "Regime Prediction",
-    regimeFeedbackCalibration: "Regime Feedback Calibration",
+    regimeMemory: "Advanced Regime Memory",
+    regimePrediction: "Advanced Regime Prediction",
+    regimeFeedbackCalibration: "Advanced Regime Feedback Calibration",
     pnlAttribution: "PnL Attribution",
     signalStatistics: "Review Statistics",
-    learningCenter: "Research",
-    tradeJournal: "Decision Review",
+    learningCenter: "Experimental Research",
+    tradeJournal: "Review",
+    knowledgeWorkspace: "Knowledge",
     volumeMilestones: "100M Volume",
     volumeThresholdMilestones: "1-100M Volume",
-    dashboard: "Дашборд",
+    dashboard: "Advanced Legacy Workspace",
     overview: "Обзор",
     filters: "Фильтры",
     screener: "Signal",
-    account: "Аккаунт Binance",
-    activeTrades: "Активные сделки",
+    account: "Execution",
+    activeTrades: "Positions",
     watchlist: "Лист наблюдения",
-    alerts: "Лента сигналов",
+    alerts: "Decision",
     health: "Состояние фида",
-    replay: "Decision Replay"
+    replay: "Replay"
   }
 };
 
 const terminalCopy: Record<InterfaceLanguage, CopyBlock> = {
   en: {
     brand: "Darra Terminal",
-    workspace: "Decision workflow workspace",
+    workspace: "Experimental desktop workspace",
     desktopAttached: "Desktop shell attached",
     previewMode: "Browser preview",
     feedLive: "Feed live",
@@ -374,7 +328,7 @@ const terminalCopy: Record<InterfaceLanguage, CopyBlock> = {
     addTab: "Add tab",
     emptyTitle: "Build your live desk",
     emptyDescription:
-      "Add workflow widgets, bind the tab to a symbol, and keep a separate working layout for each scenario. Signal, decision, execution, review and knowledge surfaces are driven by the real backend feed.",
+      "Add workflow widgets, bind the tab to a symbol, and keep a separate working layout for each scenario. Signal, decision, context, execution, positions, review and knowledge surfaces are driven by the real backend feed.",
     liveSymbol: "Live symbol",
     selectSymbol: "Select symbol",
     actionFailed: "Desktop action failed.",
@@ -386,7 +340,7 @@ const terminalCopy: Record<InterfaceLanguage, CopyBlock> = {
     activeTradesTitle: "Active trades",
     recentSignalsTitle: "Recent decision signals",
     recentSignalsEmpty: "Waiting for fresh signals from the feed.",
-    moduleWindowsTitle: "Workflow windows",
+    moduleWindowsTitle: "Advanced workflow windows",
     noData: "No live data yet",
     guestMode: "Guest mode",
     authMode: "Authenticated",

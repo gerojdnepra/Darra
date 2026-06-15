@@ -3614,7 +3614,7 @@ function DesktopMarketQuotesPanel({
         </div>
       </div>
       <div
-        className={`grid grid-cols-[20px_20px_minmax(0,1fr)_78px_84px] items-center gap-2 border-b border-[#2b3140] bg-[#171d29] text-[10px] uppercase tracking-[0.16em] text-slate-400 ${
+        className={`grid grid-cols-[20px_20px_minmax(0,1fr)_78px_84px] items-center gap-2 whitespace-nowrap border-b border-[#2b3140] bg-[#171d29] text-[10px] uppercase tracking-[0.16em] text-slate-400 ${
           embedded ? "px-2 py-1.5" : "px-3 py-2"
         }`}
       >
@@ -3639,7 +3639,7 @@ function DesktopMarketQuotesPanel({
               <button
                 type="button"
                 onClick={() => onSelectRow(row.symbol)}
-                className={`grid w-full grid-cols-[20px_20px_minmax(0,1fr)_78px_84px] items-center gap-2 text-left ${
+                className={`grid w-full grid-cols-[20px_20px_minmax(0,1fr)_78px_84px] items-center gap-2 whitespace-nowrap text-left ${
                   embedded ? "px-2 py-1.5" : "px-3 py-2"
                 }`}
               >

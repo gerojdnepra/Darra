@@ -34,7 +34,7 @@ runCommand(
   frontendDir
 );
 
-fs.cpSync(path.join(frontendDir, "out"), frontendBundleDir, { recursive: true });
+fs.cpSync(resolveFrontendExportDir(), frontendBundleDir, { recursive: true });
 
 try {
   await build({
@@ -69,6 +69,23 @@ function resetBundleDirectory() {
   fs.rmSync(bundleDir, { recursive: true, force: true });
   fs.mkdirSync(frontendBundleDir, { recursive: true });
   fs.mkdirSync(backendBundleDir, { recursive: true });
+}
+
+function resolveFrontendExportDir() {
+  const preferredDir = path.join(frontendDir, ".next-export");
+  const legacyDir = path.join(frontendDir, "out");
+
+  if (fs.existsSync(path.join(preferredDir, "index.html"))) {
+    return preferredDir;
+  }
+
+  if (fs.existsSync(path.join(legacyDir, "index.html"))) {
+    return legacyDir;
+  }
+
+  throw new Error(
+    `Frontend export output is missing. Expected ${preferredDir} or ${legacyDir}.`
+  );
 }
 
 function runCommand(command, args, workdir) {

@@ -65,6 +65,30 @@ const parsePayload = (value: string | null): unknown => {
   }
 };
 
+const readRecordPath = (value: unknown, path: string[]): unknown => {
+  let current = value;
+
+  for (const key of path) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+
+    current = (current as Record<string, unknown>)[key];
+  }
+
+  return current;
+};
+
+const readNumber = (value: unknown, path: string[]): number | undefined => {
+  const candidate = readRecordPath(value, path);
+  return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : undefined;
+};
+
+const readString = (value: unknown, path: string[]): string | undefined => {
+  const candidate = readRecordPath(value, path);
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
+};
+
 const serializeBoundedPayload = (payload: unknown): string | null => {
   if (payload === undefined || payload === null) {
     return null;
@@ -78,24 +102,46 @@ const serializeBoundedPayload = (payload: unknown): string | null => {
   return json;
 };
 
-const toTradeDecisionContext = (row: TradeDecisionContextRow): TradeDecisionContext => ({
-  id: row.id,
-  unifiedSignalId: row.unified_signal_id,
-  signalId: row.unified_signal_id,
-  symbol: row.symbol,
-  decision: row.decision as TradeDecisionContext["decision"],
-  decisionReason: row.decision_reason,
-  riskSnapshotRef: row.risk_snapshot_ref,
-  preflightId: row.preflight_id,
-  preflightNonce: row.preflight_nonce,
-  orderIntentId: row.order_intent_id,
-  reviewCorrelationId: row.review_correlation_id,
-  source: row.source as TradeDecisionContext["source"],
-  status: row.status as TradeDecisionContext["status"],
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-  payload: parsePayload(row.payload_json)
-});
+const toTradeDecisionContext = (row: TradeDecisionContextRow): TradeDecisionContext => {
+  const payload = parsePayload(row.payload_json);
+  const marketRegime =
+    readString(payload, ["decisionQuality", "marketRegime"]) ??
+    readString(payload, ["signal", "marketRegime"]);
+  const signalConfidence = readNumber(payload, ["decisionQuality", "signalConfidence"]);
+  const signalStability = readNumber(payload, ["decisionQuality", "signalStability"]);
+  const rawDecisionStrength = readString(payload, ["decisionQuality", "decisionStrength"]);
+  const decisionStrength: TradeDecisionContext["decisionStrength"] | null =
+    rawDecisionStrength === "WEAK" ||
+    rawDecisionStrength === "NORMAL" ||
+    rawDecisionStrength === "STRONG"
+      ? rawDecisionStrength
+      : null;
+  const decisionQualityScore = readNumber(payload, ["decisionQuality", "decisionQualityScore"]);
+
+  return {
+    id: row.id,
+    unifiedSignalId: row.unified_signal_id,
+    signalId: row.unified_signal_id,
+    symbol: row.symbol,
+    decision: row.decision as TradeDecisionContext["decision"],
+    decisionReason: row.decision_reason,
+    riskSnapshotRef: row.risk_snapshot_ref,
+    preflightId: row.preflight_id,
+    preflightNonce: row.preflight_nonce,
+    orderIntentId: row.order_intent_id,
+    reviewCorrelationId: row.review_correlation_id,
+    source: row.source as TradeDecisionContext["source"],
+    status: row.status as TradeDecisionContext["status"],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(marketRegime ? { marketRegime } : {}),
+    ...(signalConfidence !== undefined ? { signalConfidence } : {}),
+    ...(signalStability !== undefined ? { signalStability } : {}),
+    ...(decisionStrength ? { decisionStrength } : {}),
+    ...(decisionQualityScore !== undefined ? { decisionQualityScore } : {}),
+    payload
+  };
+};
 
 export class TradeDecisionRepository {
   constructor(private readonly db: Database.Database = getSqlite()) {}

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
+import { DesktopWindowGroupBadgeOverlay } from "@/components/desktop-window-group-badge";
 import { ScalpStationApp } from "@/components/scalp-station-app";
-import { desktopModuleSections, isCollapsibleSectionId } from "@/lib/module-sections";
+import { desktopModuleSections, isDesktopManagedModuleSectionId } from "@/lib/module-sections";
 
 export const dynamicParams = false;
 
@@ -13,9 +14,14 @@ export default function DesktopModulePage({
 }: {
   params: { section: string };
 }) {
-  if (!isCollapsibleSectionId(params.section)) {
+  if (!isDesktopManagedModuleSectionId(params.section)) {
     notFound();
   }
 
-  return <ScalpStationApp desktopSection={params.section} />;
+  return (
+    <>
+      <DesktopWindowGroupBadgeOverlay windowKey={params.section} />
+      <ScalpStationApp desktopSection={params.section} />
+    </>
+  );
 }

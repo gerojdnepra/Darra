@@ -69,6 +69,7 @@ export const desktopManagedModuleSections = [
   "signalStatistics",
   "learningCenter",
   "tradeJournal",
+  "knowledgeWorkspace",
   "watchlist",
   "volumeMilestones",
   "volumeThresholdMilestones",
@@ -80,6 +81,108 @@ export const desktopManagedModuleSections = [
 ] as const satisfies readonly CollapsibleSectionId[];
 
 export type DesktopManagedModuleSectionId = (typeof desktopManagedModuleSections)[number];
+export type DesktopScenarioWorkspaceId = "beta" | "scalping" | "swing" | "review" | "research";
+export type DesktopWorkspaceOpenMode = "merge" | "open-missing-only";
+
+export interface DesktopScenarioWorkspace {
+  id: DesktopScenarioWorkspaceId;
+  label: string;
+  description: string;
+  windows: DesktopManagedModuleSectionId[];
+}
+
+export const scenarioWorkspaceIds: DesktopScenarioWorkspaceId[] = [
+  "beta",
+  "scalping",
+  "swing",
+  "review",
+  "research"
+];
+
+export const defaultScenarioWorkspaceId: DesktopScenarioWorkspaceId = "beta";
+
+// Workspace = Intent. Layout = Geometry.
+export const scenarioWorkspaces: Record<DesktopScenarioWorkspaceId, DesktopScenarioWorkspace> = {
+  beta: {
+    id: "beta",
+    label: "Beta Workflow",
+    description:
+      "Default beta path with only the core trader chain: signal, decision, context, execution, positions and review.",
+    windows: ["screener", "alerts", "chartPanel", "account", "activeTrades", "tradeJournal"]
+  },
+  scalping: {
+    id: "scalping",
+    label: "Advanced Scalping",
+    description:
+      "Advanced fast signal-to-execution flow with extra watchlist, context and risk windows.",
+    windows: [
+      "alerts",
+      "screener",
+      "watchlist",
+      "chartPanel",
+      "decisionStack",
+      "symbolDetailRail",
+      "account",
+      "activeTrades",
+      "riskCenter",
+      "positionRiskOrchestrator"
+    ]
+  },
+  swing: {
+    id: "swing",
+    label: "Advanced Swing",
+    description:
+      "Advanced broader-context workflow with extra story, flow, funding and risk windows.",
+    windows: [
+      "screener",
+      "watchlist",
+      "chartPanel",
+      "marketStory",
+      "marketFlow",
+      "fundingBasis",
+      "decisionStack",
+      "account",
+      "activeTrades",
+      "riskCenter"
+    ]
+  },
+  review: {
+    id: "review",
+    label: "Advanced Review",
+    description:
+      "Advanced post-trade analysis with replay, review statistics and knowledge windows.",
+    windows: [
+      "tradeJournal",
+      "replay",
+      "knowledgeWorkspace",
+      "signalStatistics",
+      "learningCenter",
+      "pnlAttribution",
+      "signalIntelligence",
+      "regimeMemory",
+      "regimePrediction",
+      "regimeFeedbackCalibration",
+      "volumeThresholdMilestones"
+    ]
+  },
+  research: {
+    id: "research",
+    label: "Experimental Research",
+    description:
+      "Advanced research workflow with knowledge, telemetry and market context outside the live chain.",
+    windows: [
+      "knowledgeWorkspace",
+      "signalStatistics",
+      "learningCenter",
+      "signalIntelligence",
+      "marketStory",
+      "pnlAttribution",
+      "frameTelemetry",
+      "renderTelemetry",
+      "health"
+    ]
+  }
+};
 
 export type WorkspacePresetId =
   | "primary"
@@ -111,31 +214,30 @@ export const workspacePresetIds: WorkspacePresetId[] = [
 export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   primary: {
     id: "primary",
-    label: "Live Workspace",
-    description: "Decision Dashboard first, then Signal -> Decision -> Execution -> Positions -> Review -> Knowledge for the live decision pipeline.",
+    label: "Beta Dashboard Preset",
+    description:
+      "Legacy single-window version of the beta path: Signal -> Decision -> Context -> Execution -> Positions -> Review.",
     visibleSections: [
-      "alerts",
       "screener",
-      "decisionStack",
-      "symbolDetailRail",
+      "alerts",
+      "chartPanel",
       "account",
       "activeTrades",
-      "riskCenter"
+      "tradeJournal"
     ],
     windowSections: [
-      "alerts",
       "screener",
-      "decisionStack",
-      "symbolDetailRail",
+      "alerts",
+      "chartPanel",
       "account",
       "activeTrades",
-      "riskCenter"
+      "tradeJournal"
     ]
   },
   trading: {
     id: "trading",
-    label: "Execution Workspace",
-    description: "Execution Ticket, Preflight, Safe-To-Add and Execution Readiness as a standalone workflow stage.",
+    label: "Advanced Execution Preset",
+    description: "Execution ticket, preflight, Safe-To-Add and readiness as a standalone workflow stage.",
     visibleSections: [
       "alerts",
       "decisionStack",
@@ -161,7 +263,7 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   },
   risk: {
     id: "risk",
-    label: "Risk Workspace",
+    label: "Advanced Risk Workspace",
     description: "Portfolio and position risk view with funding, flow, VaR and correlation context.",
     visibleSections: [
       "riskCenter",
@@ -186,8 +288,8 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   },
   review: {
     id: "review",
-    label: "Review Workspace",
-    description: "Decision Review first, with Decision Replay and Trader Knowledge as review tools.",
+    label: "Advanced Review Workspace",
+    description: "Review first, with Replay and Knowledge as review tools.",
     visibleSections: [
       "tradeJournal",
       "replay",
@@ -204,6 +306,7 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
     windowSections: [
       "tradeJournal",
       "replay",
+      "knowledgeWorkspace",
       "signalStatistics",
       "learningCenter",
       "pnlAttribution",
@@ -216,7 +319,7 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   },
   knowledge: {
     id: "knowledge",
-    label: "Trader Knowledge",
+    label: "Advanced Knowledge Workspace",
     description: "System memory home for known links, unknown gaps and reconstruction coverage.",
     visibleSections: [
       "knowledgeWorkspace",
@@ -227,6 +330,7 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
       "pnlAttribution"
     ],
     windowSections: [
+      "knowledgeWorkspace",
       "tradeJournal",
       "replay",
       "signalStatistics",
@@ -236,8 +340,8 @@ export const workspacePresets: Record<WorkspacePresetId, WorkspacePreset> = {
   },
   chartFirst: {
     id: "chartFirst",
-    label: "Signal Workspace",
-    description: "Signal-first symbol focus with Decision Inbox, why-now context, chart, flow and risk.",
+    label: "Advanced Symbol Focus",
+    description: "Advanced signal-first symbol focus with Decision, why-now context, chart, flow and risk.",
     visibleSections: [
       "screener",
       "alerts",
@@ -279,6 +383,21 @@ export const getWorkspacePreset = (
   }
 
   return workspacePresets[defaultWorkspacePresetId];
+};
+
+export const isDesktopScenarioWorkspaceId = (
+  value: string
+): value is DesktopScenarioWorkspaceId =>
+  scenarioWorkspaceIds.includes(value as DesktopScenarioWorkspaceId);
+
+export const getScenarioWorkspace = (
+  id: DesktopScenarioWorkspaceId | string | null | undefined
+): DesktopScenarioWorkspace | null => {
+  if (id && isDesktopScenarioWorkspaceId(id)) {
+    return scenarioWorkspaces[id];
+  }
+
+  return null;
 };
 
 export const desktopDashboardPanels: DashboardPanelId[] = [
@@ -479,36 +598,36 @@ export const desktopModuleLabels: Record<CollapsibleSectionId, string> = {
   overview: "Overview",
   filters: "Filters",
   screener: "Signal",
-  account: "Execution Workspace",
+  account: "Execution",
   activeTrades: "Positions",
   riskCenter: "Risk Center",
   correlationHeatmap: "Correlation Heatmap",
   varPanel: "VaR",
   fundingBasis: "Funding/Basis",
   marketFlow: "Market Flow",
-  chartPanel: "Signal Context",
+  chartPanel: "Context",
   decisionStack: "Decision Pipeline",
   symbolDetailRail: "Why This Matters Now",
   marketStory: "Signal Story",
-  signalIntelligence: "Signal Intelligence",
-  metaRegimeGovernor: "Meta Regime Governor",
+  signalIntelligence: "Advanced Signal Intelligence",
+  metaRegimeGovernor: "Advanced Meta Regime Governor",
   positionRiskOrchestrator: "Position Risk",
-  regimeMemory: "Regime Memory",
-  regimePrediction: "Regime Prediction",
-  regimeFeedbackCalibration: "Regime Feedback Calibration",
+  regimeMemory: "Advanced Regime Memory",
+  regimePrediction: "Advanced Regime Prediction",
+  regimeFeedbackCalibration: "Advanced Regime Feedback Calibration",
   pnlAttribution: "PnL Attribution",
   signalStatistics: "Review Statistics",
-  learningCenter: "Research",
-  tradeJournal: "Decision Review",
-  knowledgeWorkspace: "Trader Knowledge",
+  learningCenter: "Experimental Research",
+  tradeJournal: "Review",
+  knowledgeWorkspace: "Knowledge",
   watchlist: "Watchlist",
   volumeMilestones: "100M Volume",
   volumeThresholdMilestones: "1-100M Volume",
-  alerts: "Decision Inbox",
-  frameTelemetry: "Frame Telemetry",
-  renderTelemetry: "Render Telemetry",
+  alerts: "Decision",
+  frameTelemetry: "Experimental Frame Telemetry",
+  renderTelemetry: "Experimental Render Telemetry",
   health: "Feed Health",
-  replay: "Decision Replay"
+  replay: "Replay"
 };
 
 export const desktopModuleLabelsByLanguage: Record<
@@ -523,28 +642,31 @@ export const desktopModuleLabelsByLanguage: Record<
     overview: "РћР±Р·РѕСЂ",
     filters: "Р¤РёР»СЊС‚СЂС‹",
     screener: "Signal",
-    account: "Execution Workspace",
+    account: "Execution",
     activeTrades: "Positions",
     riskCenter: "Risk Center",
     correlationHeatmap: "Correlation Heatmap",
     varPanel: "VaR",
     fundingBasis: "Funding/Basis",
     marketFlow: "Market Flow",
+    chartPanel: "Context",
     symbolDetailRail: "Symbol Detail Rail",
-    signalIntelligence: "Signal Intelligence",
-    metaRegimeGovernor: "Meta Regime Governor",
+    signalIntelligence: "Advanced Signal Intelligence",
+    metaRegimeGovernor: "Advanced Meta Regime Governor",
     positionRiskOrchestrator: "Position Risk",
-    regimeMemory: "Regime Memory",
-    regimePrediction: "Regime Prediction",
-    regimeFeedbackCalibration: "Regime Feedback Calibration",
+    regimeMemory: "Advanced Regime Memory",
+    regimePrediction: "Advanced Regime Prediction",
+    regimeFeedbackCalibration: "Advanced Regime Feedback Calibration",
     pnlAttribution: "PnL Attribution",
-    learningCenter: "Learning Center",
-    tradeJournal: "Decision Review",
-    knowledgeWorkspace: "Trader Knowledge",
+    learningCenter: "Experimental Research",
+    tradeJournal: "Review",
+    knowledgeWorkspace: "Knowledge",
     watchlist: "Р›РёСЃС‚ РЅР°Р±Р»СЋРґРµРЅРёСЏ",
-    alerts: "Decision Inbox",
+    alerts: "Decision",
     health: "РЎРѕСЃС‚РѕСЏРЅРёРµ С„РёРґР°",
-    replay: "Decision Replay"
+    frameTelemetry: "Experimental Frame Telemetry",
+    renderTelemetry: "Experimental Render Telemetry",
+    replay: "Replay"
   }
 };
 

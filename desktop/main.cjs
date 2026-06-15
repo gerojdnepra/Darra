@@ -26,9 +26,33 @@ const backendBetterSqliteBindingPath = path.join(
   "better_sqlite3.node"
 );
 const preloadPath = path.join(rootDir, "preload.cjs");
+const restoreStressWindowCountEnv = process.env.SCALPSTATION_RESTORE_STRESS_WINDOW_COUNT;
+const restoreStressHarnessEnabled =
+  !app.isPackaged && restoreStressWindowCountEnv !== undefined;
+const restoreStressRunId = restoreStressHarnessEnabled
+  ? `restore-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  : null;
+
+if (restoreStressHarnessEnabled) {
+  const restoreStressUserDataDir = path.resolve(
+    process.env.SCALPSTATION_RESTORE_STRESS_USER_DATA_DIR ||
+      path.join(rootDir, "..", "tmp", "restore-stress", restoreStressRunId, "UserData")
+  );
+
+  fs.mkdirSync(restoreStressUserDataDir, { recursive: true });
+  app.setPath("userData", restoreStressUserDataDir);
+  process.env.SCALPSTATION_RESTORE_STRESS_USER_DATA_DIR = restoreStressUserDataDir;
+}
+
 const layoutPath = path.join(app.getPath("userData"), "desktop-layout.json");
+const savedLayoutsPath = path.join(app.getPath("userData"), "desktop-saved-layouts.json");
+const monitorProfilesPath = path.join(app.getPath("userData"), "desktop-monitor-profiles.json");
+const windowGroupsPath = path.join(app.getPath("userData"), "desktop-window-groups.json");
 const alertMonitorStatePath = path.join(app.getPath("userData"), "desktop-alert-monitor.json");
 const desktopBackendLogPath = path.join(app.getPath("userData"), "desktop-backend.log");
+const savedLayoutsRegistryVersion = 1;
+const monitorProfilesRegistryVersion = 1;
+const windowGroupsRegistryVersion = 1;
 const desktopEnv = loadDesktopEnv();
 configureDesktopBackendDataPaths();
 const backendWsUrl = `ws://127.0.0.1:${readNumberEnv("BACKEND_PORT", 3001)}${normalizeWsPath(
@@ -44,39 +68,40 @@ const interfaceLanguageSet = new Set(["en", "ru"]);
 const interfaceCopy = {
   en: {
     moduleTitles: {
-      dashboard: "Dashboard",
+      dashboard: "Advanced Legacy Workspace",
       overview: "Overview",
       filters: "Filters",
-      screener: "Darra Terminal",
-      account: "Binance Account",
-      activeTrades: "Active Trades",
+      screener: "Signal",
+      account: "Execution",
+      activeTrades: "Positions",
       riskCenter: "Risk Center",
       correlationHeatmap: "Correlation Heatmap",
       varPanel: "VaR",
       fundingBasis: "Funding/Basis",
       marketFlow: "Market Flow",
-      chartPanel: "Chart Panel",
-      decisionStack: "Decision Stack",
-      symbolDetailRail: "Symbol Detail Rail",
-      marketStory: "Market Story",
-      signalIntelligence: "Signal Intelligence",
-      metaRegimeGovernor: "Meta Regime Governor",
-      positionRiskOrchestrator: "Position Risk Orchestrator",
-      regimeMemory: "Regime Memory",
-      regimePrediction: "Regime Prediction",
-      regimeFeedbackCalibration: "Regime Feedback Calibration",
+      chartPanel: "Context",
+      decisionStack: "Decision Pipeline",
+      symbolDetailRail: "Why This Matters Now",
+      marketStory: "Signal Story",
+      signalIntelligence: "Advanced Signal Intelligence",
+      metaRegimeGovernor: "Advanced Meta Regime Governor",
+      positionRiskOrchestrator: "Position Risk",
+      regimeMemory: "Advanced Regime Memory",
+      regimePrediction: "Advanced Regime Prediction",
+      regimeFeedbackCalibration: "Advanced Regime Feedback Calibration",
       pnlAttribution: "PnL Attribution",
-      signalStatistics: "Signal Statistics",
-      learningCenter: "Learning Center",
-      tradeJournal: "Trade Journal",
+      signalStatistics: "Review Statistics",
+      learningCenter: "Experimental Research",
+      tradeJournal: "Review",
+      knowledgeWorkspace: "Trader Knowledge",
       watchlist: "Watchlist",
       volumeMilestones: "100M Volume",
       volumeThresholdMilestones: "1-100M Volume",
-      alerts: "Signal Tape",
-      frameTelemetry: "Frame Telemetry",
-      renderTelemetry: "Render Telemetry",
+      alerts: "Decision",
+      frameTelemetry: "Experimental Frame Telemetry",
+      renderTelemetry: "Experimental Render Telemetry",
       health: "Feed Health",
-      replay: "Signal Replay"
+      replay: "Decision Replay"
     },
     controlCenter: "Control Center",
     controlCenterWindowTitle: `${appName} - Desktop Terminal`,
@@ -84,7 +109,7 @@ const interfaceCopy = {
     appMenu: appName,
     windowsMenu: "Windows",
     openControlCenter: "Open Control Center",
-    openDashboard: "Open Dashboard",
+    openDashboard: "Open Advanced Legacy Workspace",
     quit: "Quit",
     primaryDisplay: "Primary display",
     display: "Display",
@@ -106,31 +131,32 @@ const interfaceCopy = {
         varPanel: "VaR",
         fundingBasis: "Funding/Basis",
         marketFlow: "Market Flow",
-        chartPanel: "Chart Panel",
-        decisionStack: "Decision Stack",
-        symbolDetailRail: "Symbol Detail Rail",
-        marketStory: "Market Story",
-        signalIntelligence: "Signal Intelligence",
-        metaRegimeGovernor: "Meta Regime Governor",
-        positionRiskOrchestrator: "Position Risk Orchestrator",
-        regimeMemory: "Regime Memory",
-        regimePrediction: "Regime Prediction",
-        regimeFeedbackCalibration: "Regime Feedback Calibration",
+        chartPanel: "Context",
+        decisionStack: "Decision Pipeline",
+        symbolDetailRail: "Why This Matters Now",
+        marketStory: "Signal Story",
+        signalIntelligence: "Advanced Signal Intelligence",
+        metaRegimeGovernor: "Advanced Meta Regime Governor",
+        positionRiskOrchestrator: "Position Risk",
+        regimeMemory: "Advanced Regime Memory",
+        regimePrediction: "Advanced Regime Prediction",
+        regimeFeedbackCalibration: "Advanced Regime Feedback Calibration",
         pnlAttribution: "PnL Attribution",
-        signalStatistics: "Signal Statistics",
-        learningCenter: "Learning Center",
-        tradeJournal: "Trade Journal",
-        frameTelemetry: "Frame Telemetry",
-        renderTelemetry: "Render Telemetry",
-        replay: "Signal Replay",
-      dashboard: "Дашборд",
+        signalStatistics: "Review Statistics",
+        learningCenter: "Experimental Research",
+        tradeJournal: "Review",
+        knowledgeWorkspace: "Trader Knowledge",
+        frameTelemetry: "Experimental Frame Telemetry",
+        renderTelemetry: "Experimental Render Telemetry",
+        replay: "Decision Replay",
+      dashboard: "Advanced Legacy Workspace",
       overview: "Обзор",
       filters: "Фильтры",
-      screener: "Darra Terminal",
-      account: "Аккаунт Binance",
-      activeTrades: "Активные сделки",
+      screener: "Signal",
+      account: "Execution",
+      activeTrades: "Positions",
       watchlist: "Лист наблюдения",
-      alerts: "Лента сигналов",
+      alerts: "Decision",
       health: "Состояние фида"
     },
     controlCenter: "Центр управления",
@@ -139,7 +165,7 @@ const interfaceCopy = {
     appMenu: appName,
     windowsMenu: "Окна",
     openControlCenter: "Открыть центр управления",
-    openDashboard: "Открыть дашборд",
+    openDashboard: "Open Advanced Legacy Workspace",
     quit: "Выход",
     primaryDisplay: "Основной экран",
     display: "Экран",
@@ -180,6 +206,7 @@ const managedWindowDefinitions = [
   { key: "signalStatistics", route: "/module/signalStatistics" },
   { key: "learningCenter", route: "/module/learningCenter" },
   { key: "tradeJournal", route: "/module/tradeJournal" },
+  { key: "knowledgeWorkspace", route: "/module/knowledgeWorkspace" },
   { key: "watchlist", route: "/module/watchlist" },
   { key: "volumeMilestones", route: "/module/volumeMilestones" },
   { key: "volumeThresholdMilestones", route: "/module/volumeThresholdMilestones" },
@@ -190,10 +217,194 @@ const managedWindowDefinitions = [
   { key: "replay", route: "/module/replay" }
 ];
 
+const scenarioWorkspaceDefinitions = [
+  {
+    id: "beta",
+    windows: ["screener", "alerts", "chartPanel", "account", "activeTrades", "tradeJournal"]
+  },
+  {
+    id: "scalping",
+    windows: [
+      "alerts",
+      "screener",
+      "watchlist",
+      "chartPanel",
+      "decisionStack",
+      "symbolDetailRail",
+      "account",
+      "activeTrades",
+      "riskCenter",
+      "positionRiskOrchestrator"
+    ]
+  },
+  {
+    id: "swing",
+    windows: [
+      "screener",
+      "watchlist",
+      "chartPanel",
+      "marketStory",
+      "marketFlow",
+      "fundingBasis",
+      "decisionStack",
+      "account",
+      "activeTrades",
+      "riskCenter"
+    ]
+  },
+  {
+    id: "review",
+    windows: [
+      "tradeJournal",
+      "replay",
+      "knowledgeWorkspace",
+      "signalStatistics",
+      "learningCenter",
+      "pnlAttribution",
+      "signalIntelligence",
+      "regimeMemory",
+      "regimePrediction",
+      "regimeFeedbackCalibration",
+      "volumeThresholdMilestones"
+    ]
+  },
+  {
+    id: "research",
+    windows: [
+      "knowledgeWorkspace",
+      "signalStatistics",
+      "learningCenter",
+      "signalIntelligence",
+      "marketStory",
+      "pnlAttribution",
+      "frameTelemetry",
+      "renderTelemetry",
+      "health"
+    ]
+  }
+];
+
 const windowDefinitionsByKey = new Map(
   managedWindowDefinitions.map((definition) => [definition.key, definition])
 );
 const managedWindows = new Map();
+const supportedWorkspaceOpenModes = new Set(["merge", "open-missing-only"]);
+const monitorProfileRoles = ["primary", "chart", "execution", "risk", "review"];
+const windowGroupColors = ["blue", "green", "amber", "rose", "violet", "slate"];
+const windowGroupContextModes = ["shared", "locked"];
+const managedWindowMonitorRoles = {
+  chartPanel: "chart",
+  symbolDetailRail: "chart",
+  marketStory: "chart",
+  marketFlow: "chart",
+  fundingBasis: "chart",
+  watchlist: "chart",
+  account: "execution",
+  activeTrades: "execution",
+  alerts: "execution",
+  screener: "execution",
+  decisionStack: "execution",
+  overview: "execution",
+  filters: "execution",
+  riskCenter: "risk",
+  positionRiskOrchestrator: "risk",
+  correlationHeatmap: "risk",
+  varPanel: "risk",
+  metaRegimeGovernor: "risk",
+  regimeMemory: "risk",
+  regimePrediction: "risk",
+  regimeFeedbackCalibration: "risk",
+  volumeMilestones: "risk",
+  volumeThresholdMilestones: "risk",
+  tradeJournal: "review",
+  replay: "review",
+  knowledgeWorkspace: "review",
+  signalStatistics: "review",
+  learningCenter: "review",
+  signalIntelligence: "review",
+  pnlAttribution: "review",
+  frameTelemetry: "review",
+  renderTelemetry: "review",
+  health: "review"
+};
+
+function collectDuplicateValues(values) {
+  const seen = new Set();
+  const duplicates = new Set();
+
+  for (const value of values) {
+    if (seen.has(value)) {
+      duplicates.add(value);
+      continue;
+    }
+
+    seen.add(value);
+  }
+
+  return [...duplicates];
+}
+
+function getManagedWindowRegistryIssues() {
+  const issues = [];
+  const managedKeys = managedWindowDefinitions.map((definition) => definition.key);
+  const duplicateManagedKeys = collectDuplicateValues(managedKeys);
+
+  for (const key of duplicateManagedKeys) {
+    issues.push(`Duplicate managed window definition key: ${key}`);
+  }
+
+  const duplicateManagedRoutes = collectDuplicateValues(
+    managedWindowDefinitions.map((definition) => definition.route)
+  );
+
+  for (const route of duplicateManagedRoutes) {
+    issues.push(`Duplicate managed window route: ${route}`);
+  }
+
+  for (const definition of scenarioWorkspaceDefinitions) {
+    if (!definition || typeof definition.id !== "string") {
+      issues.push("Scenario workspace definition is missing a valid id.");
+      continue;
+    }
+
+    if (!Array.isArray(definition.windows) || definition.windows.length === 0) {
+      issues.push(`Scenario workspace "${definition.id}" is missing managed windows.`);
+      continue;
+    }
+
+    const duplicateWorkspaceKeys = collectDuplicateValues(definition.windows);
+    for (const key of duplicateWorkspaceKeys) {
+      issues.push(`Scenario workspace "${definition.id}" contains duplicate window key: ${key}`);
+    }
+
+    for (const key of definition.windows) {
+      if (key === "dashboard") {
+        issues.push(`Scenario workspace "${definition.id}" cannot include dashboard.`);
+        continue;
+      }
+
+      if (!windowDefinitionsByKey.has(key)) {
+        issues.push(`Scenario workspace "${definition.id}" references unknown window key: ${key}`);
+      }
+    }
+  }
+
+  for (const key of Object.keys(managedWindowMonitorRoles)) {
+    if (!windowDefinitionsByKey.has(key)) {
+      issues.push(`Monitor role mapping references unknown window key: ${key}`);
+    }
+  }
+
+  return issues;
+}
+
+const managedWindowRegistryIssues = getManagedWindowRegistryIssues();
+if (!app.isPackaged && managedWindowRegistryIssues.length > 0) {
+  console.error(
+    "[desktop-shell] Managed window registry issues detected:\n" +
+      managedWindowRegistryIssues.map((issue) => `- ${issue}`).join("\n")
+  );
+}
 
 function requireManagedWindowDefinition(key) {
   const definition = windowDefinitionsByKey.get(key);
@@ -202,6 +413,61 @@ function requireManagedWindowDefinition(key) {
   }
 
   return definition;
+}
+
+function normalizeScenarioWorkspaceDefinition(definition) {
+  if (!definition || typeof definition.id !== "string") {
+    throw new Error("Scenario workspace definition is missing a valid id.");
+  }
+
+  if (!Array.isArray(definition.windows) || definition.windows.length === 0) {
+    throw new Error(`Scenario workspace "${definition.id}" is missing managed windows.`);
+  }
+
+  const seen = new Set();
+  const windows = [];
+
+  for (const key of definition.windows) {
+    if (key === "dashboard") {
+      throw new Error(`Scenario workspace "${definition.id}" cannot include dashboard.`);
+    }
+
+    requireManagedWindowDefinition(key);
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      windows.push(key);
+    }
+  }
+
+  return {
+    id: definition.id,
+    windows
+  };
+}
+
+const normalizedScenarioWorkspaceDefinitions = scenarioWorkspaceDefinitions.map((definition) =>
+  normalizeScenarioWorkspaceDefinition(definition)
+);
+const scenarioWorkspaceDefinitionsById = new Map(
+  normalizedScenarioWorkspaceDefinitions.map((definition) => [definition.id, definition])
+);
+
+function requireScenarioWorkspaceDefinition(id) {
+  const definition = scenarioWorkspaceDefinitionsById.get(id);
+  if (!definition) {
+    throw new Error(`Unknown scenario workspace: ${id}`);
+  }
+
+  return definition;
+}
+
+function requireScenarioWorkspaceOpenMode(mode) {
+  if (!supportedWorkspaceOpenModes.has(mode)) {
+    throw new Error(`Unsupported workspace open mode: ${mode}`);
+  }
+
+  return mode;
 }
 
 // ------------------------------------------------------------
@@ -229,8 +495,8 @@ if (!gotSingleInstanceLock) {
         return;
       }
     }
-    // No managed window exists – open the dashboard as a fallback.
-    void openManagedWindow('dashboard');
+    // No managed window exists – surface the window manager as a safe fallback.
+    void showControlCenter();
   });
 }
 
@@ -240,7 +506,8 @@ let frontendServer = null;
 let frontendBaseUrl = "";
 let backendLifecycle = null;
 let appTray = null;
-let layoutState = loadLayoutState();
+let layoutState = createEmptyLayoutState();
+let windowGroupsRegistry = createEmptyWindowGroupsRegistry();
 let alertMonitorSettings = loadAlertMonitorSettings();
 let alertMonitorSocket = null;
 let alertMonitorReconnectTimer = null;
@@ -260,6 +527,29 @@ let lastSignalOverlayEventId = null;
 let lastSignalOverlayShownAt = 0;
 let layoutSaveTimer = null;
 let stateBroadcastTimer = null;
+const metrics = {
+  windowsOpened: 0,
+  windowsClosed: 0,
+  broadcastCount: 0,
+  broadcastPayloadSize: 0,
+  skippedAlreadyOpen: 0,
+  skippedBecauseUnavailable: 0,
+  restoreStartTime: null,
+  restoreEndTime: null,
+  lastRestoreWindowCount: 0,
+  windowLifecycleEvents: [],
+  currentRunId: null,
+  lastRunStartedAt: null,
+  lastRunEndedAt: null,
+  lastRunDurationMs: null,
+  lastRunOptions: null,
+  lastRunMetricsDelta: null
+};
+let restoreStressHarnessErrors = [];
+let isRestoringManagedWindows = false;
+let restoreLayoutSavePending = false;
+let restoreBroadcastPending = false;
+let didBroadcastAfterManagedWindowRestore = false;
 
 const initialAlertReplayWindowMs = 120_000;
 const initialAlertReplayLimit = 3;
@@ -500,17 +790,64 @@ function createDefaultWindowState(key) {
   };
 }
 
-function loadLayoutState() {
-  const defaults = {};
+function createEmptyLayoutState() {
+  const windows = {};
 
   for (const definition of managedWindowDefinitions) {
-    defaults[definition.key] = createDefaultWindowState(definition.key);
+    windows[definition.key] = createDefaultWindowState(definition.key);
+  }
+
+  return { windows };
+}
+
+function readLayoutStateSource() {
+  let source;
+
+  try {
+    source = fs.readFileSync(layoutPath, "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn(`Failed to read desktop layout state at ${layoutPath}. Falling back to defaults.`, error);
+    }
+
+    return null;
+  }
+
+  if (source.charCodeAt(0) === 0xfeff) {
+    console.warn(`Desktop layout state at ${layoutPath} contained a UTF-8 BOM. Stripping it before parse.`);
+    source = source.slice(1);
+  }
+
+  return source;
+}
+
+function loadLayoutState() {
+  const defaults = createEmptyLayoutState().windows;
+  const source = readLayoutStateSource();
+
+  if (!source) {
+    return {
+      windows: defaults
+    };
+  }
+
+  if (!source.trim()) {
+    console.warn(`Desktop layout state at ${layoutPath} is empty. Falling back to defaults.`);
+    return {
+      windows: defaults
+    };
   }
 
   try {
-    const source = fs.readFileSync(layoutPath, "utf8");
     const parsed = JSON.parse(source);
     const savedWindows = parsed?.windows ?? {};
+
+    if (!savedWindows || typeof savedWindows !== "object") {
+      console.warn(`Desktop layout state at ${layoutPath} is missing a valid windows registry. Falling back to defaults.`);
+      return {
+        windows: defaults
+      };
+    }
 
     for (const definition of managedWindowDefinitions) {
       if (!savedWindows[definition.key] || typeof savedWindows[definition.key] !== "object") {
@@ -522,13 +859,945 @@ function loadLayoutState() {
         savedWindows[definition.key]
       );
     }
-  } catch {
-    // Keep defaults on first launch or malformed state.
+  } catch (error) {
+    console.warn(`Failed to parse desktop layout state at ${layoutPath}. Falling back to defaults.`, error);
   }
 
   return {
     windows: defaults
   };
+}
+
+function createEmptySavedLayoutsRegistry() {
+  return {
+    version: savedLayoutsRegistryVersion,
+    layouts: {}
+  };
+}
+
+function readSavedLayoutsRegistrySource() {
+  let source;
+
+  try {
+    source = fs.readFileSync(savedLayoutsPath, "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn(
+        `Failed to read desktop saved layouts registry at ${savedLayoutsPath}. Falling back to an empty registry.`,
+        error
+      );
+    }
+
+    return null;
+  }
+
+  if (source.charCodeAt(0) === 0xfeff) {
+    console.warn(
+      `Desktop saved layouts registry at ${savedLayoutsPath} contained a UTF-8 BOM. Stripping it before parse.`
+    );
+    source = source.slice(1);
+  }
+
+  return source;
+}
+
+function readMonitorProfilesRegistrySource() {
+  let source;
+
+  try {
+    source = fs.readFileSync(monitorProfilesPath, "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn(
+        `Failed to read desktop monitor profiles registry at ${monitorProfilesPath}. Falling back to an empty registry.`,
+        error
+      );
+    }
+
+    return null;
+  }
+
+  if (source.charCodeAt(0) === 0xfeff) {
+    console.warn(
+      `Desktop monitor profiles registry at ${monitorProfilesPath} contained a UTF-8 BOM. Stripping it before parse.`
+    );
+    source = source.slice(1);
+  }
+
+  return source;
+}
+
+function readWindowGroupsRegistrySource() {
+  let source;
+
+  try {
+    source = fs.readFileSync(windowGroupsPath, "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn(
+        `Failed to read desktop window groups registry at ${windowGroupsPath}. Falling back to an empty registry.`,
+        error
+      );
+    }
+
+    return null;
+  }
+
+  if (source.charCodeAt(0) === 0xfeff) {
+    console.warn(
+      `Desktop window groups registry at ${windowGroupsPath} contained a UTF-8 BOM. Stripping it before parse.`
+    );
+    source = source.slice(1);
+  }
+
+  return source;
+}
+
+function writeJsonFileAtomically(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const retryDelaysMs = [5, 15, 35, 75];
+  const retryableRenameErrorCodes = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
+  const nextCounter = ((writeJsonFileAtomically.writeCounter ?? 0) + 1) % Number.MAX_SAFE_INTEGER;
+  writeJsonFileAtomically.writeCounter = nextCounter;
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.${nextCounter.toString(36)}.${Math.random()
+    .toString(36)
+    .slice(2, 10)}.tmp`;
+  const sleepSync = (delayMs) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+  };
+
+  try {
+    fs.writeFileSync(temporaryPath, JSON.stringify(value, null, 2));
+
+    for (let attemptIndex = 0; attemptIndex <= retryDelaysMs.length; attemptIndex += 1) {
+      try {
+        fs.renameSync(temporaryPath, filePath);
+        break;
+      } catch (error) {
+        if (
+          !retryableRenameErrorCodes.has(error?.code) ||
+          attemptIndex === retryDelaysMs.length
+        ) {
+          throw error;
+        }
+
+        sleepSync(retryDelaysMs[attemptIndex]);
+      }
+    }
+  } finally {
+    if (fs.existsSync(temporaryPath)) {
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch {
+        // Best-effort cleanup for failed atomic writes.
+      }
+    }
+  }
+}
+
+function createSavedLayoutLookupKey(name) {
+  return normalizeSavedLayoutName(name).toLowerCase();
+}
+
+function normalizeSavedLayoutName(value) {
+  const normalized =
+    typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+
+  if (!normalized) {
+    throw new Error("Layout name is required.");
+  }
+
+  if (normalized.length > 80) {
+    throw new Error("Layout name must be 80 characters or fewer.");
+  }
+
+  return normalized;
+}
+
+function normalizeSavedLayoutTimestamp(value, fallback) {
+  const timestamp =
+    typeof value === "string" || typeof value === "number" ? new Date(value) : null;
+
+  return timestamp && Number.isFinite(timestamp.getTime())
+    ? timestamp.toISOString()
+    : fallback;
+}
+
+function cloneNormalizedWindowRegistry(sourceWindows) {
+  const normalizedWindows = createEmptyLayoutState().windows;
+
+  for (const definition of managedWindowDefinitions) {
+    normalizedWindows[definition.key] = normalizeWindowState(
+      definition.key,
+      sourceWindows?.[definition.key] ?? {}
+    );
+  }
+
+  return normalizedWindows;
+}
+
+function normalizeSavedLayoutPayload(value) {
+  if (!value || typeof value !== "object") {
+    throw new Error("Saved layout payload must be an object.");
+  }
+
+  if (value.version !== undefined && value.version !== savedLayoutsRegistryVersion) {
+    throw new Error(
+      `Unsupported saved layout version: ${value.version}. Expected ${savedLayoutsRegistryVersion}.`
+    );
+  }
+
+  const fallbackTimestamp = new Date().toISOString();
+
+  return {
+    name: normalizeSavedLayoutName(value.name),
+    createdAt: normalizeSavedLayoutTimestamp(value.createdAt, fallbackTimestamp),
+    updatedAt: normalizeSavedLayoutTimestamp(value.updatedAt, fallbackTimestamp),
+    windows: cloneNormalizedWindowRegistry(value.windows)
+  };
+}
+
+function loadSavedLayoutsRegistry() {
+  const emptyRegistry = createEmptySavedLayoutsRegistry();
+  const source = readSavedLayoutsRegistrySource();
+
+  if (!source) {
+    return emptyRegistry;
+  }
+
+  if (!source.trim()) {
+    console.warn(
+      `Desktop saved layouts registry at ${savedLayoutsPath} is empty. Falling back to an empty registry.`
+    );
+    return emptyRegistry;
+  }
+
+  try {
+    const parsed = JSON.parse(source);
+    const savedLayouts = parsed?.layouts;
+
+    if (parsed?.version !== undefined && parsed.version !== savedLayoutsRegistryVersion) {
+      console.warn(
+        `Desktop saved layouts registry at ${savedLayoutsPath} uses unsupported version ${parsed.version}. Falling back to an empty registry.`
+      );
+      return emptyRegistry;
+    }
+
+    if (savedLayouts && typeof savedLayouts !== "object") {
+      console.warn(
+        `Desktop saved layouts registry at ${savedLayoutsPath} is missing a valid layouts map. Falling back to an empty registry.`
+      );
+      return emptyRegistry;
+    }
+
+    const normalizedLayouts = {};
+
+    for (const entry of Object.values(savedLayouts ?? {})) {
+      try {
+        const normalizedEntry = normalizeSavedLayoutPayload(entry);
+        const lookupKey = createSavedLayoutLookupKey(normalizedEntry.name);
+
+        if (normalizedLayouts[lookupKey]) {
+          console.warn(
+            `Desktop saved layouts registry at ${savedLayoutsPath} contains a duplicate layout name: ${normalizedEntry.name}. Skipping the duplicate entry.`
+          );
+          continue;
+        }
+
+        normalizedLayouts[lookupKey] = normalizedEntry;
+      } catch (error) {
+        console.warn(
+          `Skipping invalid saved layout entry in ${savedLayoutsPath}.`,
+          error
+        );
+      }
+    }
+
+    return {
+      version: savedLayoutsRegistryVersion,
+      layouts: normalizedLayouts
+    };
+  } catch (error) {
+    console.warn(
+      `Failed to parse desktop saved layouts registry at ${savedLayoutsPath}. Falling back to an empty registry.`,
+      error
+    );
+    return emptyRegistry;
+  }
+}
+
+function saveSavedLayoutsRegistry(registry) {
+  const normalizedLayouts = {};
+
+  for (const entry of Object.values(registry?.layouts ?? {})) {
+    const normalizedEntry = normalizeSavedLayoutPayload(entry);
+    const lookupKey = createSavedLayoutLookupKey(normalizedEntry.name);
+
+    if (normalizedLayouts[lookupKey]) {
+      throw new Error(`Duplicate saved layout name: ${normalizedEntry.name}`);
+    }
+
+    normalizedLayouts[lookupKey] = normalizedEntry;
+  }
+
+  const nextRegistry = {
+    version: savedLayoutsRegistryVersion,
+    layouts: normalizedLayouts
+  };
+
+  writeJsonFileAtomically(savedLayoutsPath, nextRegistry);
+  return nextRegistry;
+}
+
+function createEmptyMonitorProfilesRegistry() {
+  return {
+    version: monitorProfilesRegistryVersion,
+    profiles: {}
+  };
+}
+
+function createMonitorProfileLookupKey(name) {
+  return normalizeMonitorProfileName(name).toLowerCase();
+}
+
+function createMonitorProfileIdBase(name) {
+  return (
+    normalizeMonitorProfileName(name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "monitor-profile"
+  );
+}
+
+function createMonitorProfileId(name, profiles) {
+  const baseId = createMonitorProfileIdBase(name);
+  let nextId = baseId;
+  let suffix = 2;
+
+  while (profiles?.[nextId]) {
+    nextId = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return nextId;
+}
+
+function normalizeMonitorProfileName(value) {
+  const normalized =
+    typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+
+  if (!normalized) {
+    throw new Error("Monitor profile name is required.");
+  }
+
+  if (normalized.length > 80) {
+    throw new Error("Monitor profile name must be 80 characters or fewer.");
+  }
+
+  return normalized;
+}
+
+function normalizeMonitorProfileId(value, fallbackName) {
+  const normalized =
+    typeof value === "string"
+      ? value
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+      : "";
+
+  return normalized || createMonitorProfileIdBase(fallbackName);
+}
+
+function normalizeMonitorProfileTimestamp(value, fallback) {
+  const timestamp =
+    typeof value === "string" || typeof value === "number" ? new Date(value) : null;
+
+  return timestamp && Number.isFinite(timestamp.getTime())
+    ? timestamp.toISOString()
+    : fallback;
+}
+
+function normalizeMonitorProfileRoleAssignment(value) {
+  if (!value || typeof value !== "object") {
+    return { displayId: null };
+  }
+
+  if (value.displayId === null || value.displayId === undefined || value.displayId === "") {
+    return { displayId: null };
+  }
+
+  const displayId = Number(value.displayId);
+  return {
+    displayId: Number.isInteger(displayId) ? displayId : null
+  };
+}
+
+function normalizeMonitorProfileRoles(value) {
+  const roles = {};
+
+  for (const role of monitorProfileRoles) {
+    roles[role] = normalizeMonitorProfileRoleAssignment(value?.[role]);
+  }
+
+  return roles;
+}
+
+function cloneMonitorProfileRoles(sourceRoles) {
+  return normalizeMonitorProfileRoles(sourceRoles);
+}
+
+function normalizeDisplayRectangle(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const width = Number(value.width);
+  const height = Number(value.height);
+
+  if (![x, y, width, height].every(Number.isFinite)) {
+    return null;
+  }
+
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.max(Math.round(width), 0),
+    height: Math.max(Math.round(height), 0)
+  };
+}
+
+function normalizeCapturedDisplaySnapshot(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const id = Number(value.id);
+  const bounds = normalizeDisplayRectangle(value.bounds);
+  const workArea = normalizeDisplayRectangle(value.workArea);
+
+  if (!Number.isInteger(id) || !bounds || !workArea) {
+    return null;
+  }
+
+  return {
+    id,
+    label: typeof value.label === "string" ? value.label : "",
+    primary: !!value.primary,
+    scaleFactor: Number.isFinite(Number(value.scaleFactor)) ? Number(value.scaleFactor) : 1,
+    bounds,
+    workArea
+  };
+}
+
+function normalizeCapturedDisplays(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => normalizeCapturedDisplaySnapshot(entry))
+    .filter((entry) => entry !== null);
+}
+
+function normalizeMonitorProfilePayload(value, options = {}) {
+  if (!value || typeof value !== "object") {
+    throw new Error("Monitor profile payload must be an object.");
+  }
+
+  if (value.version !== undefined && value.version !== monitorProfilesRegistryVersion) {
+    throw new Error(
+      `Unsupported monitor profile version: ${value.version}. Expected ${monitorProfilesRegistryVersion}.`
+    );
+  }
+
+  const fallbackTimestamp = options.timestamp ?? new Date().toISOString();
+  const name = normalizeMonitorProfileName(value.name);
+  const id = normalizeMonitorProfileId(options.id ?? value.id, name);
+
+  return {
+    id,
+    name,
+    createdAt: normalizeMonitorProfileTimestamp(value.createdAt, fallbackTimestamp),
+    updatedAt: normalizeMonitorProfileTimestamp(value.updatedAt, fallbackTimestamp),
+    roles: normalizeMonitorProfileRoles(value.roles),
+    capturedDisplays: normalizeCapturedDisplays(value.capturedDisplays)
+  };
+}
+
+function loadMonitorProfilesRegistry() {
+  const emptyRegistry = createEmptyMonitorProfilesRegistry();
+  const source = readMonitorProfilesRegistrySource();
+
+  if (!source) {
+    return emptyRegistry;
+  }
+
+  if (!source.trim()) {
+    console.warn(
+      `Desktop monitor profiles registry at ${monitorProfilesPath} is empty. Falling back to an empty registry.`
+    );
+    return emptyRegistry;
+  }
+
+  try {
+    const parsed = JSON.parse(source);
+    const profiles = parsed?.profiles;
+
+    if (parsed?.version !== undefined && parsed.version !== monitorProfilesRegistryVersion) {
+      console.warn(
+        `Desktop monitor profiles registry at ${monitorProfilesPath} uses unsupported version ${parsed.version}. Falling back to an empty registry.`
+      );
+      return emptyRegistry;
+    }
+
+    if (profiles && typeof profiles !== "object") {
+      console.warn(
+        `Desktop monitor profiles registry at ${monitorProfilesPath} is missing a valid profiles map. Falling back to an empty registry.`
+      );
+      return emptyRegistry;
+    }
+
+    const normalizedProfiles = {};
+    const profileNames = new Set();
+
+    for (const [profileId, entry] of Object.entries(profiles ?? {})) {
+      try {
+        const normalizedEntry = normalizeMonitorProfilePayload(entry, { id: profileId });
+        const lookupKey = createMonitorProfileLookupKey(normalizedEntry.name);
+
+        if (normalizedProfiles[normalizedEntry.id]) {
+          console.warn(
+            `Desktop monitor profiles registry at ${monitorProfilesPath} contains a duplicate profile id: ${normalizedEntry.id}. Skipping the duplicate entry.`
+          );
+          continue;
+        }
+
+        if (profileNames.has(lookupKey)) {
+          console.warn(
+            `Desktop monitor profiles registry at ${monitorProfilesPath} contains a duplicate profile name: ${normalizedEntry.name}. Skipping the duplicate entry.`
+          );
+          continue;
+        }
+
+        profileNames.add(lookupKey);
+        normalizedProfiles[normalizedEntry.id] = normalizedEntry;
+      } catch (error) {
+        console.warn(
+          `Skipping invalid monitor profile entry in ${monitorProfilesPath}.`,
+          error
+        );
+      }
+    }
+
+    return {
+      version: monitorProfilesRegistryVersion,
+      profiles: normalizedProfiles
+    };
+  } catch (error) {
+    console.warn(
+      `Failed to parse desktop monitor profiles registry at ${monitorProfilesPath}. Falling back to an empty registry.`,
+      error
+    );
+    return emptyRegistry;
+  }
+}
+
+function saveMonitorProfilesRegistry(registry) {
+  const normalizedProfiles = {};
+  const profileNames = new Set();
+
+  for (const entry of Object.values(registry?.profiles ?? {})) {
+    const normalizedEntry = normalizeMonitorProfilePayload(entry);
+    const lookupKey = createMonitorProfileLookupKey(normalizedEntry.name);
+
+    if (normalizedProfiles[normalizedEntry.id]) {
+      throw new Error(`Duplicate monitor profile id: ${normalizedEntry.id}`);
+    }
+
+    if (profileNames.has(lookupKey)) {
+      throw new Error(`Duplicate monitor profile name: ${normalizedEntry.name}`);
+    }
+
+    profileNames.add(lookupKey);
+    normalizedProfiles[normalizedEntry.id] = normalizedEntry;
+  }
+
+  const nextRegistry = {
+    version: monitorProfilesRegistryVersion,
+    profiles: normalizedProfiles
+  };
+
+  writeJsonFileAtomically(monitorProfilesPath, nextRegistry);
+  return nextRegistry;
+}
+
+function createEmptyWindowGroupsRegistry() {
+  return {
+    version: windowGroupsRegistryVersion,
+    groups: {},
+    assignments: {}
+  };
+}
+
+function normalizeWindowGroupLabel(value) {
+  const normalized =
+    typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+
+  if (!normalized) {
+    throw new Error("Window group label is required.");
+  }
+
+  if (normalized.length > 80) {
+    throw new Error("Window group label must be 80 characters or fewer.");
+  }
+
+  return normalized;
+}
+
+function createWindowGroupIdBase(label) {
+  const normalizedLabel = normalizeWindowGroupLabel(label);
+  const slug = normalizedLabel
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const withoutGroupSuffix = slug.endsWith("-group") ? slug.slice(0, -6) : slug;
+
+  return withoutGroupSuffix || slug || "window-group";
+}
+
+function normalizeWindowGroupId(value, fallbackLabel) {
+  const normalized =
+    typeof value === "string"
+      ? value
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+      : "";
+
+  return normalized || createWindowGroupIdBase(fallbackLabel);
+}
+
+function createWindowGroupId(label, groups) {
+  const baseId = createWindowGroupIdBase(label);
+  let nextId = baseId;
+  let suffix = 2;
+
+  while (groups?.[nextId]) {
+    nextId = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return nextId;
+}
+
+function normalizeWindowGroupTimestamp(value, fallback) {
+  const timestamp =
+    typeof value === "string" || typeof value === "number" ? new Date(value) : null;
+
+  return timestamp && Number.isFinite(timestamp.getTime())
+    ? timestamp.toISOString()
+    : fallback;
+}
+
+function normalizeWindowGroupSymbol(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized =
+    typeof value === "string" ? value.replace(/\s+/g, "").trim().toUpperCase() : "";
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.length > 40) {
+    throw new Error("Window group symbol must be 40 characters or fewer.");
+  }
+
+  return normalized;
+}
+
+function normalizeWindowGroupColor(value) {
+  return windowGroupColors.includes(value) ? value : "blue";
+}
+
+function normalizeWindowGroupContextMode(value) {
+  return windowGroupContextModes.includes(value) ? value : "shared";
+}
+
+function normalizeWindowGroupPayload(value, options = {}) {
+  if (!value || typeof value !== "object") {
+    throw new Error("Window group payload must be an object.");
+  }
+
+  if (value.version !== undefined && value.version !== windowGroupsRegistryVersion) {
+    throw new Error(
+      `Unsupported window group version: ${value.version}. Expected ${windowGroupsRegistryVersion}.`
+    );
+  }
+
+  const fallbackTimestamp = options.timestamp ?? new Date().toISOString();
+  const label = normalizeWindowGroupLabel(value.label);
+  const groupId = normalizeWindowGroupId(options.groupId ?? value.groupId, label);
+
+  return {
+    groupId,
+    label,
+    symbol: normalizeWindowGroupSymbol(value.symbol),
+    color: normalizeWindowGroupColor(value.color),
+    contextMode: normalizeWindowGroupContextMode(value.contextMode),
+    createdAt: normalizeWindowGroupTimestamp(value.createdAt, fallbackTimestamp),
+    updatedAt: normalizeWindowGroupTimestamp(value.updatedAt, fallbackTimestamp)
+  };
+}
+
+function cloneWindowGroup(entry) {
+  return normalizeWindowGroupPayload(entry, { groupId: entry?.groupId });
+}
+
+function normalizeWindowGroupAssignments(value, groups) {
+  const normalizedAssignments = {};
+
+  if (!value || typeof value !== "object") {
+    return normalizedAssignments;
+  }
+
+  for (const [key, groupId] of Object.entries(value)) {
+    if (!windowDefinitionsByKey.has(key)) {
+      console.warn(
+        `Desktop window groups registry at ${windowGroupsPath} contains an assignment for unknown managed window "${key}". Ignoring it.`
+      );
+      continue;
+    }
+
+    if (groupId === null || groupId === undefined || groupId === "") {
+      continue;
+    }
+
+    const normalizedGroupId =
+      typeof groupId === "string"
+        ? groupId
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+        : "";
+
+    if (!normalizedGroupId || !groups[normalizedGroupId]) {
+      console.warn(
+        `Desktop window groups registry at ${windowGroupsPath} assigns "${key}" to a missing group "${groupId}". Ignoring it.`
+      );
+      continue;
+    }
+
+    normalizedAssignments[key] = normalizedGroupId;
+  }
+
+  return normalizedAssignments;
+}
+
+function loadWindowGroupsRegistry() {
+  const emptyRegistry = createEmptyWindowGroupsRegistry();
+  const source = readWindowGroupsRegistrySource();
+
+  if (!source) {
+    return emptyRegistry;
+  }
+
+  if (!source.trim()) {
+    console.warn(
+      `Desktop window groups registry at ${windowGroupsPath} is empty. Falling back to an empty registry.`
+    );
+    return emptyRegistry;
+  }
+
+  try {
+    const parsed = JSON.parse(source);
+    const groups = parsed?.groups;
+
+    if (parsed?.version !== undefined && parsed.version !== windowGroupsRegistryVersion) {
+      console.warn(
+        `Desktop window groups registry at ${windowGroupsPath} uses unsupported version ${parsed.version}. Falling back to an empty registry.`
+      );
+      return emptyRegistry;
+    }
+
+    if (groups && typeof groups !== "object") {
+      console.warn(
+        `Desktop window groups registry at ${windowGroupsPath} is missing a valid groups map. Falling back to an empty registry.`
+      );
+      return emptyRegistry;
+    }
+
+    const normalizedGroups = {};
+    const groupLabels = new Set();
+
+    for (const [groupId, entry] of Object.entries(groups ?? {})) {
+      try {
+        const normalizedEntry = normalizeWindowGroupPayload(entry, { groupId });
+        const labelKey = normalizedEntry.label.toLowerCase();
+
+        if (normalizedGroups[normalizedEntry.groupId]) {
+          console.warn(
+            `Desktop window groups registry at ${windowGroupsPath} contains a duplicate group id: ${normalizedEntry.groupId}. Skipping the duplicate entry.`
+          );
+          continue;
+        }
+
+        if (groupLabels.has(labelKey)) {
+          console.warn(
+            `Desktop window groups registry at ${windowGroupsPath} contains a duplicate group label: ${normalizedEntry.label}. Skipping the duplicate entry.`
+          );
+          continue;
+        }
+
+        groupLabels.add(labelKey);
+        normalizedGroups[normalizedEntry.groupId] = normalizedEntry;
+      } catch (error) {
+        console.warn(
+          `Skipping invalid window group entry in ${windowGroupsPath}.`,
+          error
+        );
+      }
+    }
+
+    return {
+      version: windowGroupsRegistryVersion,
+      groups: normalizedGroups,
+      assignments: normalizeWindowGroupAssignments(parsed?.assignments, normalizedGroups)
+    };
+  } catch (error) {
+    console.warn(
+      `Failed to parse desktop window groups registry at ${windowGroupsPath}. Falling back to an empty registry.`,
+      error
+    );
+    return emptyRegistry;
+  }
+}
+
+function saveWindowGroupsRegistry(registry) {
+  const normalizedGroups = {};
+  const groupLabels = new Set();
+
+  for (const entry of Object.values(registry?.groups ?? {})) {
+    const normalizedEntry = normalizeWindowGroupPayload(entry);
+    const labelKey = normalizedEntry.label.toLowerCase();
+
+    if (normalizedGroups[normalizedEntry.groupId]) {
+      throw new Error(`Duplicate window group id: ${normalizedEntry.groupId}`);
+    }
+
+    if (groupLabels.has(labelKey)) {
+      throw new Error(`Duplicate window group label: ${normalizedEntry.label}`);
+    }
+
+    groupLabels.add(labelKey);
+    normalizedGroups[normalizedEntry.groupId] = normalizedEntry;
+  }
+
+  const nextRegistry = {
+    version: windowGroupsRegistryVersion,
+    groups: normalizedGroups,
+    assignments: normalizeWindowGroupAssignments(registry?.assignments, normalizedGroups)
+  };
+
+  writeJsonFileAtomically(windowGroupsPath, nextRegistry);
+  windowGroupsRegistry = nextRegistry;
+  return nextRegistry;
+}
+
+function createWindowGroupsState(registry = windowGroupsRegistry) {
+  const groups = {};
+  const assignments = {};
+
+  for (const [groupId, entry] of Object.entries(registry?.groups ?? {})) {
+    groups[groupId] = cloneWindowGroup(entry);
+  }
+
+  for (const definition of managedWindowDefinitions) {
+    const assignedGroupId = registry?.assignments?.[definition.key] ?? null;
+    assignments[definition.key] =
+      assignedGroupId && groups[assignedGroupId] ? assignedGroupId : null;
+  }
+
+  return {
+    groups,
+    assignments
+  };
+}
+
+function listWindowGroups() {
+  return createWindowGroupsState(windowGroupsRegistry);
+}
+
+function createWindowGroup(payload) {
+  const normalizedLabel = normalizeWindowGroupLabel(payload?.label);
+  const labelKey = normalizedLabel.toLowerCase();
+
+  for (const entry of Object.values(windowGroupsRegistry.groups)) {
+    if (entry.label.toLowerCase() === labelKey) {
+      throw new Error(`Window group "${normalizedLabel}" already exists.`);
+    }
+  }
+
+  const timestamp = new Date().toISOString();
+  const groupId = createWindowGroupId(normalizedLabel, windowGroupsRegistry.groups);
+  windowGroupsRegistry.groups[groupId] = normalizeWindowGroupPayload({
+    groupId,
+    label: normalizedLabel,
+    symbol: payload?.symbol ?? null,
+    color: payload?.color ?? "blue",
+    contextMode: payload?.contextMode ?? "shared",
+    createdAt: timestamp,
+    updatedAt: timestamp
+  });
+
+  saveWindowGroupsRegistry(windowGroupsRegistry);
+  return listWindowGroups();
+}
+
+function updateWindowGroupSymbol(groupId, symbol) {
+  const normalizedGroupId = normalizeWindowGroupId(groupId, "window-group");
+  const group = windowGroupsRegistry.groups[normalizedGroupId];
+
+  if (!group) {
+    throw new Error(`Window group "${normalizedGroupId}" was not found.`);
+  }
+
+  windowGroupsRegistry.groups[normalizedGroupId] = {
+    ...group,
+    symbol: normalizeWindowGroupSymbol(symbol),
+    updatedAt: new Date().toISOString()
+  };
+
+  saveWindowGroupsRegistry(windowGroupsRegistry);
+  return listWindowGroups();
+}
+
+function assignWindowToGroup(key, groupId) {
+  requireManagedWindowDefinition(key);
+  const normalizedGroupId = normalizeWindowGroupId(groupId, "window-group");
+
+  if (!windowGroupsRegistry.groups[normalizedGroupId]) {
+    throw new Error(`Window group "${normalizedGroupId}" was not found.`);
+  }
+
+  windowGroupsRegistry.assignments[key] = normalizedGroupId;
+  saveWindowGroupsRegistry(windowGroupsRegistry);
+  return listWindowGroups();
+}
+
+function unassignWindowFromGroup(key) {
+  requireManagedWindowDefinition(key);
+  delete windowGroupsRegistry.assignments[key];
+  saveWindowGroupsRegistry(windowGroupsRegistry);
+  return listWindowGroups();
 }
 
 function normalizeWindowState(key, value) {
@@ -760,14 +2029,28 @@ function updateAlertMonitorSettings(patch) {
 }
 
 function saveLayoutState() {
-  fs.mkdirSync(path.dirname(layoutPath), { recursive: true });
-  fs.writeFileSync(layoutPath, JSON.stringify(layoutState, null, 2));
+  if (isRestoringManagedWindows) {
+    restoreLayoutSavePending = true;
+    return;
+  }
+
+  writeJsonFileAtomically(layoutPath, layoutState);
+}
+
+function clearScheduledLayoutStateSave() {
+  if (layoutSaveTimer !== null) {
+    clearTimeout(layoutSaveTimer);
+    layoutSaveTimer = null;
+  }
 }
 
 function scheduleLayoutStateSave() {
-  if (layoutSaveTimer !== null) {
-    clearTimeout(layoutSaveTimer);
+  if (isRestoringManagedWindows) {
+    restoreLayoutSavePending = true;
+    return;
   }
+
+  clearScheduledLayoutStateSave();
 
   layoutSaveTimer = setTimeout(() => {
     layoutSaveTimer = null;
@@ -776,11 +2059,7 @@ function scheduleLayoutStateSave() {
 }
 
 function flushLayoutStateSave() {
-  if (layoutSaveTimer !== null) {
-    clearTimeout(layoutSaveTimer);
-    layoutSaveTimer = null;
-  }
-
+  clearScheduledLayoutStateSave();
   saveLayoutState();
 }
 
@@ -790,6 +2069,498 @@ function getManagedWindowState(key) {
   }
 
   return layoutState.windows[key];
+}
+
+function persistManagedWindowStateOnClose(key, instance) {
+  const state = getManagedWindowState(key);
+  const nextBounds = browserWindowBoundsToSavedBounds(instance);
+
+  state.bounds = nextBounds;
+  state.displayId = screen.getDisplayMatching(instance.getBounds())?.id ?? state.displayId;
+  state.opacity = clampOpacity(instance.getOpacity());
+  state.alwaysOnTop = instance.isAlwaysOnTop();
+
+  if (!runtimeStopping) {
+    state.open = false;
+  }
+
+  saveLayoutState();
+}
+
+function browserWindowBoundsToSavedBounds(instance) {
+  return normalizeBounds(instance.getBounds());
+}
+
+function syncManagedWindowsIntoLayoutState() {
+  for (const [key, instance] of managedWindows.entries()) {
+    if (instance && !instance.isDestroyed()) {
+      syncWindowStateFromInstance(key, instance, { deferSave: true });
+    }
+  }
+
+  flushLayoutStateSave();
+}
+
+function getSavedLayoutEntry(registry, name) {
+  const normalizedName = normalizeSavedLayoutName(name);
+  const lookupKey = createSavedLayoutLookupKey(normalizedName);
+  const entry = registry.layouts[lookupKey];
+
+  if (!entry) {
+    throw new Error(`Saved layout "${normalizedName}" was not found.`);
+  }
+
+  return {
+    lookupKey,
+    entry
+  };
+}
+
+function createSavedLayoutSummary(entry) {
+  return {
+    name: entry.name,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    openWindowCount: managedWindowDefinitions.reduce(
+      (count, definition) => count + (entry.windows?.[definition.key]?.open ? 1 : 0),
+      0
+    )
+  };
+}
+
+function listSavedLayouts() {
+  const registry = loadSavedLayoutsRegistry();
+
+  return Object.values(registry.layouts)
+    .sort((left, right) => {
+      const timeDiff =
+        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+
+      return timeDiff !== 0 ? timeDiff : left.name.localeCompare(right.name);
+    })
+    .map((entry) => createSavedLayoutSummary(entry));
+}
+
+function saveCurrentLayout(name) {
+  const normalizedName = normalizeSavedLayoutName(name);
+  const registry = loadSavedLayoutsRegistry();
+  const lookupKey = createSavedLayoutLookupKey(normalizedName);
+
+  if (registry.layouts[lookupKey]) {
+    throw new Error(`Saved layout "${normalizedName}" already exists.`);
+  }
+
+  syncManagedWindowsIntoLayoutState();
+
+  const timestamp = new Date().toISOString();
+  registry.layouts[lookupKey] = {
+    name: normalizedName,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    windows: cloneNormalizedWindowRegistry(layoutState.windows)
+  };
+
+  saveSavedLayoutsRegistry(registry);
+  return listSavedLayouts();
+}
+
+function applyLayoutState(nextLayoutState) {
+  clearScheduledLayoutStateSave();
+  layoutState = {
+    windows: cloneNormalizedWindowRegistry(nextLayoutState.windows)
+  };
+  saveLayoutState();
+
+  for (const definition of managedWindowDefinitions) {
+    const instance = managedWindows.get(definition.key);
+    const windowState = getManagedWindowState(definition.key);
+
+    if (!windowState.open) {
+      if (instance && !instance.isDestroyed()) {
+        instance.close();
+      }
+      continue;
+    }
+
+    if (instance && !instance.isDestroyed()) {
+      const nextBounds = resolveManagedWindowBounds(definition.key);
+
+      instance.setAlwaysOnTop(windowState.alwaysOnTop);
+      instance.setOpacity(windowState.opacity);
+      instance.setBounds(nextBounds);
+
+      if (instance.isMinimized()) {
+        instance.restore();
+      }
+
+      instance.show();
+      syncWindowStateFromInstance(definition.key, instance);
+      continue;
+    }
+
+    const restoredWindow = createManagedWindow(definition.key);
+    restoredWindow.setAlwaysOnTop(windowState.alwaysOnTop);
+    restoredWindow.setOpacity(windowState.opacity);
+    restoredWindow.setBounds(resolveManagedWindowBounds(definition.key));
+  }
+}
+
+function loadSavedLayout(name) {
+  const registry = loadSavedLayoutsRegistry();
+  const { entry } = getSavedLayoutEntry(registry, name);
+  applyLayoutState({
+    windows: cloneNormalizedWindowRegistry(entry.windows)
+  });
+  return broadcastState();
+}
+
+function deleteSavedLayout(name) {
+  const registry = loadSavedLayoutsRegistry();
+  const { lookupKey } = getSavedLayoutEntry(registry, name);
+
+  delete registry.layouts[lookupKey];
+  saveSavedLayoutsRegistry(registry);
+  return listSavedLayouts();
+}
+
+function exportSavedLayout(name) {
+  const registry = loadSavedLayoutsRegistry();
+  const { entry } = getSavedLayoutEntry(registry, name);
+
+  return {
+    version: savedLayoutsRegistryVersion,
+    name: entry.name,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    windows: cloneNormalizedWindowRegistry(entry.windows)
+  };
+}
+
+function importSavedLayout(jsonSource) {
+  if (typeof jsonSource !== "string") {
+    throw new Error("Saved layout import payload must be a JSON string.");
+  }
+
+  const source = jsonSource.charCodeAt(0) === 0xfeff ? jsonSource.slice(1) : jsonSource;
+
+  if (!source.trim()) {
+    throw new Error("Saved layout import payload is empty.");
+  }
+
+  let parsed;
+
+  try {
+    parsed = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Failed to parse saved layout import JSON: ${error.message}`);
+  }
+
+  const normalizedEntry = normalizeSavedLayoutPayload(parsed);
+  const registry = loadSavedLayoutsRegistry();
+  const lookupKey = createSavedLayoutLookupKey(normalizedEntry.name);
+
+  if (registry.layouts[lookupKey]) {
+    throw new Error(`Saved layout "${normalizedEntry.name}" already exists.`);
+  }
+
+  registry.layouts[lookupKey] = normalizedEntry;
+  saveSavedLayoutsRegistry(registry);
+  return listSavedLayouts();
+}
+
+function getDisplaySnapshots() {
+  const copy = getInterfaceCopy();
+
+  return screen.getAllDisplays().map((display, index) => ({
+    id: display.id,
+    label: display.primary ? copy.primaryDisplay : `${copy.display} ${index + 1}`,
+    primary: display.primary,
+    scaleFactor: display.scaleFactor,
+    bounds: display.bounds,
+    workArea: display.workArea
+  }));
+}
+
+function listDisplays() {
+  return getDisplaySnapshots();
+}
+
+function createMonitorProfileSummary(entry) {
+  return {
+    id: entry.id,
+    name: entry.name,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    roles: cloneMonitorProfileRoles(entry.roles),
+    capturedDisplays: normalizeCapturedDisplays(entry.capturedDisplays)
+  };
+}
+
+function listMonitorProfiles() {
+  const registry = loadMonitorProfilesRegistry();
+
+  return Object.values(registry.profiles)
+    .sort((left, right) => {
+      const timeDiff =
+        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+
+      return timeDiff !== 0 ? timeDiff : left.name.localeCompare(right.name);
+    })
+    .map((entry) => createMonitorProfileSummary(entry));
+}
+
+function saveMonitorProfile(profile) {
+  const registry = loadMonitorProfilesRegistry();
+  const normalizedName = normalizeMonitorProfileName(profile?.name);
+  const lookupKey = createMonitorProfileLookupKey(normalizedName);
+
+  for (const entry of Object.values(registry.profiles)) {
+    if (createMonitorProfileLookupKey(entry.name) === lookupKey) {
+      throw new Error(`Monitor profile "${normalizedName}" already exists.`);
+    }
+  }
+
+  const timestamp = new Date().toISOString();
+  const id = createMonitorProfileId(normalizedName, registry.profiles);
+  registry.profiles[id] = normalizeMonitorProfilePayload({
+    id,
+    name: normalizedName,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    roles: profile?.roles,
+    capturedDisplays: getDisplaySnapshots()
+  });
+
+  saveMonitorProfilesRegistry(registry);
+  return listMonitorProfiles();
+}
+
+function getMonitorProfileEntry(registry, profileId) {
+  const id = typeof profileId === "string" ? profileId.trim() : "";
+  const entry = id ? registry.profiles[id] : null;
+
+  if (!entry) {
+    throw new Error(`Monitor profile "${id || "unknown"}" was not found.`);
+  }
+
+  return entry;
+}
+
+function getManagedWindowMonitorRole(key) {
+  const role = managedWindowMonitorRoles[key];
+  return monitorProfileRoles.includes(role) ? role : "primary";
+}
+
+function logDisplayResolution(message) {
+  if (!app.isPackaged) {
+    console.log(`[desktop-shell] ${message}`);
+  }
+}
+
+function getDisplayTopologyRelation(display, primaryDisplay) {
+  if (!display || !primaryDisplay) {
+    return "unknown";
+  }
+
+  if (display.id === primaryDisplay.id) {
+    return "primary";
+  }
+
+  const dx = display.bounds.x - primaryDisplay.bounds.x;
+  const dy = display.bounds.y - primaryDisplay.bounds.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx < 0 ? "left" : "right";
+  }
+
+  return dy < 0 ? "above" : "below";
+}
+
+function scoreDisplayFingerprintMatch(capturedDisplay, currentDisplay, capturedPrimary, currentPrimary) {
+  let score = 0;
+
+  if (capturedDisplay.primary === currentDisplay.primary) {
+    score += 80;
+  }
+
+  const capturedWorkArea = capturedDisplay.workArea;
+  const currentWorkArea = currentDisplay.workArea;
+  const workAreaWidthDelta = Math.abs(capturedWorkArea.width - currentWorkArea.width);
+  const workAreaHeightDelta = Math.abs(capturedWorkArea.height - currentWorkArea.height);
+
+  if (workAreaWidthDelta === 0 && workAreaHeightDelta === 0) {
+    score += 70;
+  } else if (workAreaWidthDelta <= 48 && workAreaHeightDelta <= 48) {
+    score += 40;
+  } else if (workAreaWidthDelta <= 128 && workAreaHeightDelta <= 128) {
+    score += 15;
+  }
+
+  const capturedBounds = capturedDisplay.bounds;
+  const currentBounds = currentDisplay.bounds;
+  const boundsWidthDelta = Math.abs(capturedBounds.width - currentBounds.width);
+  const boundsHeightDelta = Math.abs(capturedBounds.height - currentBounds.height);
+
+  if (boundsWidthDelta === 0 && boundsHeightDelta === 0) {
+    score += 40;
+  } else if (boundsWidthDelta <= 64 && boundsHeightDelta <= 64) {
+    score += 20;
+  } else if (boundsWidthDelta <= 160 && boundsHeightDelta <= 160) {
+    score += 8;
+  }
+
+  const scaleFactorDelta = Math.abs(capturedDisplay.scaleFactor - currentDisplay.scaleFactor);
+  if (scaleFactorDelta === 0) {
+    score += 25;
+  } else if (scaleFactorDelta <= 0.1) {
+    score += 12;
+  } else if (scaleFactorDelta <= 0.25) {
+    score += 5;
+  }
+
+  const capturedRelation = getDisplayTopologyRelation(capturedDisplay, capturedPrimary);
+  const currentRelation = getDisplayTopologyRelation(currentDisplay, currentPrimary);
+  if (capturedRelation === currentRelation) {
+    score += 18;
+  }
+
+  const positionDeltaX = Math.abs(capturedBounds.x - currentBounds.x);
+  const positionDeltaY = Math.abs(capturedBounds.y - currentBounds.y);
+  if (positionDeltaX === 0 && positionDeltaY === 0) {
+    score += 12;
+  } else if (positionDeltaX <= 128 && positionDeltaY <= 128) {
+    score += 6;
+  }
+
+  return score;
+}
+
+function findBestMatchingDisplayForSnapshot(capturedDisplay, currentDisplays, capturedDisplays) {
+  if (!capturedDisplay || currentDisplays.length === 0) {
+    return null;
+  }
+
+  const capturedPrimary =
+    capturedDisplays.find((display) => display.primary) ??
+    capturedDisplays.find((display) => display.id === capturedDisplay.id) ??
+    capturedDisplay;
+  const currentPrimary =
+    currentDisplays.find((display) => display.primary) ?? screen.getPrimaryDisplay();
+  const rankedMatches = currentDisplays
+    .map((display) => ({
+      display,
+      score: scoreDisplayFingerprintMatch(capturedDisplay, display, capturedPrimary, currentPrimary)
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const [bestMatch, secondBestMatch] = rankedMatches;
+  if (!bestMatch) {
+    return null;
+  }
+
+  if (bestMatch.score < 90) {
+    return null;
+  }
+
+  if (secondBestMatch && bestMatch.score - secondBestMatch.score < 20) {
+    return null;
+  }
+
+  return bestMatch.display;
+}
+
+function resolveMonitorProfileDisplay(profile, role) {
+  const displays = screen.getAllDisplays();
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const displayId =
+    profile.roles?.[role]?.displayId ?? profile.roles?.primary?.displayId ?? null;
+
+  if (Number.isInteger(displayId)) {
+    const matchedDisplay = displays.find((display) => display.id === displayId);
+
+    if (matchedDisplay) {
+      logDisplayResolution(
+        `monitor profile "${profile.id}" role "${role}" resolved by exact displayId ${displayId}`
+      );
+      return matchedDisplay;
+    }
+  }
+
+  const capturedDisplay = profile.capturedDisplays.find((display) => display.id === displayId);
+  const fingerprintMatch = capturedDisplay
+    ? findBestMatchingDisplayForSnapshot(capturedDisplay, displays, profile.capturedDisplays)
+    : null;
+
+  if (fingerprintMatch) {
+    logDisplayResolution(
+      `monitor profile "${profile.id}" role "${role}" fingerprint-remapped displayId ${displayId} -> ${fingerprintMatch.id}`
+    );
+    return fingerprintMatch;
+  }
+
+  logDisplayResolution(
+    `monitor profile "${profile.id}" role "${role}" fell back to primary display ${primaryDisplay.id}`
+  );
+  return primaryDisplay;
+}
+
+function moveOpenWindowToMonitorProfileDisplay(key, instance, display) {
+  const currentBounds = instance.getBounds();
+  const currentWidth = Number.isFinite(Number(currentBounds.width))
+    ? Math.round(Number(currentBounds.width))
+    : getDefaultBounds(key, display).width;
+  const currentHeight = Number.isFinite(Number(currentBounds.height))
+    ? Math.round(Number(currentBounds.height))
+    : getDefaultBounds(key, display).height;
+  const workArea = display.workArea;
+  const nextWidth = Math.min(Math.max(currentWidth, 320), workArea.width);
+  const nextHeight = Math.min(Math.max(currentHeight, 240), workArea.height);
+  const nextBounds = clampBoundsToDisplay(
+    {
+      x: workArea.x + Math.round((workArea.width - nextWidth) / 2),
+      y: workArea.y + Math.round((workArea.height - nextHeight) / 2),
+      width: nextWidth,
+      height: nextHeight
+    },
+    display
+  );
+
+  instance.setBounds(nextBounds);
+
+  const windowState = getManagedWindowState(key);
+  const actualBounds = normalizeBounds(instance.getBounds()) ?? nextBounds;
+  windowState.open = true;
+  windowState.bounds = actualBounds;
+  windowState.displayId = screen.getDisplayMatching(actualBounds)?.id ?? display.id;
+  windowState.opacity = clampOpacity(instance.getOpacity());
+  windowState.alwaysOnTop = instance.isAlwaysOnTop();
+}
+
+function applyMonitorProfile(profileId) {
+  const registry = loadMonitorProfilesRegistry();
+  const profile = getMonitorProfileEntry(registry, profileId);
+  let movedCount = 0;
+
+  clearScheduledLayoutStateSave();
+
+  for (const definition of managedWindowDefinitions) {
+    const instance = managedWindows.get(definition.key);
+
+    if (!instance || instance.isDestroyed()) {
+      continue;
+    }
+
+    const role = getManagedWindowMonitorRole(definition.key);
+    const display = resolveMonitorProfileDisplay(profile, role);
+    moveOpenWindowToMonitorProfileDisplay(definition.key, instance, display);
+    movedCount += 1;
+  }
+
+  if (movedCount > 0) {
+    saveLayoutState();
+  }
+
+  return broadcastState();
 }
 
 function getDefaultBounds(key, display) {
@@ -850,7 +2621,10 @@ function shouldUseDefaultWindowBounds(key, bounds, display) {
 function resolveManagedWindowBounds(key) {
   const windowState = getManagedWindowState(key);
   const display = windowState.displayId
-    ? resolveDisplay(windowState.displayId)
+    ? resolveDisplay(windowState.displayId, {
+        bounds: windowState.bounds,
+        logContext: `managed-window-restore:${key}`
+      })
     : windowState.bounds
       ? screen.getDisplayMatching(windowState.bounds)
       : screen.getPrimaryDisplay();
@@ -865,15 +2639,34 @@ function resolveManagedWindowBounds(key) {
 
 function resolveDisplay(displayId) {
   const displays = screen.getAllDisplays();
+  const options = arguments[1] ?? {};
+  const bounds = options.bounds;
+  const logContext = options.logContext ? `${options.logContext} ` : "";
 
   if (displayId !== null) {
     const matchedDisplay = displays.find((display) => display.id === displayId);
     if (matchedDisplay) {
+      logDisplayResolution(`${logContext}resolved by exact displayId ${displayId}`);
       return matchedDisplay;
     }
   }
 
-  return screen.getPrimaryDisplay();
+  const normalizedBounds = normalizeBounds(bounds);
+  if (normalizedBounds) {
+    const matchedDisplay = screen.getDisplayMatching(normalizedBounds);
+    if (matchedDisplay) {
+      logDisplayResolution(
+        `${logContext}resolved by bounds/display remap ${displayId ?? "null"} -> ${matchedDisplay.id}`
+      );
+      return matchedDisplay;
+    }
+  }
+
+  const primaryDisplay = screen.getPrimaryDisplay();
+  logDisplayResolution(
+    `${logContext}fell back to primary display ${primaryDisplay.id} for displayId ${displayId ?? "null"}`
+  );
+  return primaryDisplay;
 }
 
 function resolveWindowBounds(key) {
@@ -899,20 +2692,12 @@ function syncWindowStateFromInstance(key, instance, options = {}) {
 }
 
 function getStateSnapshot() {
-  const copy = getInterfaceCopy();
-
   return {
     frontendBaseUrl,
     backendWsUrl,
     interfaceLanguage: normalizeInterfaceLanguage(alertMonitorSettings.interfaceLanguage),
-    displays: screen.getAllDisplays().map((display, index) => ({
-      id: display.id,
-      label: display.primary ? copy.primaryDisplay : `${copy.display} ${index + 1}`,
-      primary: display.primary,
-      scaleFactor: display.scaleFactor,
-      bounds: display.bounds,
-      workArea: display.workArea
-    })),
+    displays: getDisplaySnapshots(),
+    windowGroups: createWindowGroupsState(),
     windows: managedWindowDefinitions.map((definition) => {
       const windowState = getManagedWindowState(definition.key);
       const instance = managedWindows.get(definition.key);
@@ -947,12 +2732,21 @@ function shouldBroadcastDesktopShellState(windowInstance) {
 
   return (
     url === `${frontendBaseUrl}/desktop` ||
-    url.startsWith(`${frontendBaseUrl}/desktopdaraterminal`)
+    url.startsWith(`${frontendBaseUrl}/desktopdaraterminal`) ||
+    url.startsWith(`${frontendBaseUrl}/module/`)
   );
 }
 
 function broadcastState() {
   const snapshot = getStateSnapshot();
+
+  if (isRestoringManagedWindows) {
+    restoreBroadcastPending = true;
+    return snapshot;
+  }
+
+  metrics.broadcastCount += 1;
+  metrics.broadcastPayloadSize = JSON.stringify(snapshot).length;
 
   BrowserWindow.getAllWindows().forEach((windowInstance) => {
     if (shouldBroadcastDesktopShellState(windowInstance)) {
@@ -964,6 +2758,11 @@ function broadcastState() {
 }
 
 function scheduleBroadcastState() {
+  if (isRestoringManagedWindows) {
+    restoreBroadcastPending = true;
+    return;
+  }
+
   if (stateBroadcastTimer !== null) {
     clearTimeout(stateBroadcastTimer);
   }
@@ -1030,8 +2829,28 @@ function createTray() {
   return appTray;
 }
 
+function showManagedWindowInstance(browserWindow, options = {}) {
+  const shouldFocus = options.focus !== false;
+
+  browserWindow.__scalpStationShowInactive = !shouldFocus;
+
+  if (shouldFocus) {
+    browserWindow.show();
+    browserWindow.focus();
+    return;
+  }
+
+  if (typeof browserWindow.showInactive === "function") {
+    browserWindow.showInactive();
+    return;
+  }
+
+  browserWindow.show();
+}
+
 function createManagedWindow(key) {
   const definition = requireManagedWindowDefinition(key);
+  const windowTitle = getManagedWindowTitle(definition.key);
 
   const instance = managedWindows.get(key);
   if (instance && !instance.isDestroyed()) {
@@ -1046,7 +2865,7 @@ function createManagedWindow(key) {
     show: false,
     backgroundColor: "#09111a",
     autoHideMenuBar: true,
-    title: getManagedWindowTitle(definition.key),
+    title: windowTitle,
     ...(desktopIconPath ? { icon: desktopIconPath } : {}),
     webPreferences: {
       contextIsolation: true,
@@ -1057,14 +2876,39 @@ function createManagedWindow(key) {
   });
 
   browserWindow.setMenuBarVisibility(false);
+  browserWindow.setTitle(windowTitle);
   browserWindow.setAlwaysOnTop(windowState.alwaysOnTop);
   browserWindow.setOpacity(windowState.opacity);
   managedWindows.set(key, browserWindow);
+  metrics.windowsOpened += 1;
+  metrics.windowLifecycleEvents.push({
+    time: Date.now(),
+    event: "open",
+    key
+  });
+
+  browserWindow.on("page-title-updated", (event) => {
+    event.preventDefault();
+    browserWindow.setTitle(windowTitle);
+  });
 
   browserWindow.on("ready-to-show", () => {
-    browserWindow.show();
+    browserWindow.setTitle(windowTitle);
+    if (browserWindow.__scalpStationShowInactive) {
+      if (typeof browserWindow.showInactive === "function") {
+        browserWindow.showInactive();
+      } else {
+        browserWindow.show();
+      }
+    } else {
+      browserWindow.show();
+    }
     syncWindowStateFromInstance(key, browserWindow);
     broadcastState();
+  });
+
+  browserWindow.webContents.on("did-finish-load", () => {
+    browserWindow.setTitle(windowTitle);
   });
 
   browserWindow.on("moved", () => {
@@ -1083,16 +2927,11 @@ function createManagedWindow(key) {
   });
 
   browserWindow.on("close", () => {
-    const state = getManagedWindowState(key);
-    state.open = false;
-    state.bounds = normalizeBounds(browserWindow.getBounds());
-    state.displayId = screen.getDisplayMatching(browserWindow.getBounds())?.id ?? state.displayId;
-    state.opacity = clampOpacity(browserWindow.getOpacity());
-    state.alwaysOnTop = browserWindow.isAlwaysOnTop();
-    saveLayoutState();
+    persistManagedWindowStateOnClose(key, browserWindow);
   });
 
   browserWindow.on("closed", () => {
+    metrics.windowsClosed += 1;
     managedWindows.delete(key);
     broadcastState();
   });
@@ -1102,10 +2941,42 @@ function createManagedWindow(key) {
   return browserWindow;
 }
 
-async function openManagedWindow(key) {
+async function openManagedWindow(key, options = {}) {
   requireManagedWindowDefinition(key);
 
   const windowState = getManagedWindowState(key);
+  const existingInstance = managedWindows.get(key);
+
+  if (existingInstance && !existingInstance.isDestroyed()) {
+    let stateChanged = false;
+
+    if (!windowState.open) {
+      windowState.open = true;
+      stateChanged = true;
+    }
+
+    if (!windowState.bounds) {
+      windowState.bounds = normalizeBounds(existingInstance.getBounds()) ?? resolveManagedWindowBounds(key);
+      stateChanged = true;
+    }
+
+    if (stateChanged) {
+      saveLayoutState();
+    } else {
+      metrics.skippedAlreadyOpen += 1;
+    }
+
+    if (options.focus !== false) {
+      if (existingInstance.isMinimized()) {
+        existingInstance.restore();
+      }
+
+      showManagedWindowInstance(existingInstance, options);
+    }
+
+    return stateChanged ? broadcastState() : getStateSnapshot();
+  }
+
   windowState.open = true;
   windowState.bounds = resolveManagedWindowBounds(key);
   saveLayoutState();
@@ -1114,30 +2985,107 @@ async function openManagedWindow(key) {
   if (browserWindow.isMinimized()) {
     browserWindow.restore();
   }
-  browserWindow.show();
-  browserWindow.focus();
+  showManagedWindowInstance(browserWindow, options);
+
+  return broadcastState();
+}
+
+function listWorkspaces() {
+  return normalizedScenarioWorkspaceDefinitions.map((definition) => ({
+    id: definition.id,
+    windows: [...definition.windows],
+    windowCount: definition.windows.length
+  }));
+}
+
+async function openWorkspace(id, mode) {
+  const definition = requireScenarioWorkspaceDefinition(id);
+  const openMode = requireScenarioWorkspaceOpenMode(mode);
+
+  for (const key of definition.windows) {
+    const instance = managedWindows.get(key);
+    const isOpen = !!instance && !instance.isDestroyed();
+
+    if (isOpen) {
+      continue;
+    }
+
+    await openManagedWindow(key, { focus: false });
+  }
+
+  if (openMode === "merge") {
+    await focusManagedWindow(definition.windows[0]);
+  }
 
   return broadcastState();
 }
 
 async function restoreSavedManagedWindows() {
-  for (const definition of managedWindowDefinitions) {
-    if (definition.key === "dashboard") {
-      continue;
+  metrics.restoreStartTime = Date.now();
+  didBroadcastAfterManagedWindowRestore = false;
+  isRestoringManagedWindows = true;
+  restoreLayoutSavePending = false;
+  restoreBroadcastPending = false;
+  let restoredCount = 0;
+
+  try {
+    for (const definition of managedWindowDefinitions) {
+      if (definition.key === "dashboard") {
+        continue;
+      }
+
+      const windowState = getManagedWindowState(definition.key);
+
+      if (!windowState.open) {
+        continue;
+      }
+
+      try {
+        await openManagedWindow(definition.key);
+        restoredCount += 1;
+      } catch (error) {
+        recordRestoreStressHarnessError(error, `restore:${definition.key}`);
+        console.error(`Failed to restore managed window: ${definition.key}`, error);
+      }
     }
 
-    const windowState = getManagedWindowState(definition.key);
+  } finally {
+    metrics.restoreEndTime = Date.now();
+    metrics.lastRestoreWindowCount = restoredCount;
+    isRestoringManagedWindows = false;
 
-    if (!windowState.open) {
-      continue;
+    if (restoreLayoutSavePending || restoredCount > 0) {
+      try {
+        flushLayoutStateSave();
+      } catch (error) {
+        recordRestoreStressHarnessError(error, "restore:flush-layout");
+        console.error("Failed to flush restored managed window layout state", error);
+      }
     }
 
-    try {
-      await openManagedWindow(definition.key);
-    } catch (error) {
-      console.error(`Failed to restore managed window: ${definition.key}`, error);
+    clearScheduledBroadcastState();
+
+    if (restoreBroadcastPending || restoredCount > 0) {
+      broadcastState();
+      didBroadcastAfterManagedWindowRestore = true;
     }
+
+    restoreLayoutSavePending = false;
+    restoreBroadcastPending = false;
   }
+
+  return restoredCount;
+}
+
+async function openInitialShellWindow() {
+  const restoredCount = await restoreSavedManagedWindows();
+
+  if (restoredCount > 0) {
+    return restoredCount;
+  }
+
+  await showControlCenter();
+  return 0;
 }
 
 async function focusManagedWindow(key) {
@@ -1223,6 +3171,328 @@ async function updateManagedWindow(key, patch) {
   }
 
   return broadcastState();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getStressHarnessWindowKeys(windowCount) {
+  const managedKeys = getStressHarnessAvailableWindowKeys();
+
+  if (!Number.isInteger(windowCount) || windowCount <= 0) {
+    return [];
+  }
+
+  return managedKeys.slice(0, Math.min(windowCount, managedKeys.length));
+}
+
+function getStressHarnessAvailableWindowKeys() {
+  return managedWindowDefinitions
+    .map((definition) => definition.key)
+    .filter((key) => key !== "dashboard");
+}
+
+function getStressDelay(delayMs) {
+  if (Number.isFinite(Number(delayMs)) && Number(delayMs) >= 0) {
+    return Math.round(Number(delayMs));
+  }
+
+  return 50 + Math.floor(Math.random() * 101);
+}
+
+function captureMetricsBaseline() {
+  return {
+    windowsOpened: metrics.windowsOpened,
+    windowsClosed: metrics.windowsClosed,
+    broadcastCount: metrics.broadcastCount,
+    broadcastPayloadSize: metrics.broadcastPayloadSize,
+    skippedAlreadyOpen: metrics.skippedAlreadyOpen,
+    skippedBecauseUnavailable: metrics.skippedBecauseUnavailable,
+    restoreStartTime: metrics.restoreStartTime,
+    restoreEndTime: metrics.restoreEndTime,
+    lastRestoreWindowCount: metrics.lastRestoreWindowCount,
+    windowLifecycleEventCount: metrics.windowLifecycleEvents.length,
+    capturedAt: Date.now()
+  };
+}
+
+function diffMetricsFromBaseline(baseline) {
+  return {
+    windowsOpened: metrics.windowsOpened - baseline.windowsOpened,
+    windowsClosed: metrics.windowsClosed - baseline.windowsClosed,
+    broadcastCount: metrics.broadcastCount - baseline.broadcastCount,
+    broadcastPayloadSize: metrics.broadcastPayloadSize,
+    skippedAlreadyOpen: metrics.skippedAlreadyOpen - baseline.skippedAlreadyOpen,
+    skippedBecauseUnavailable: metrics.skippedBecauseUnavailable - baseline.skippedBecauseUnavailable,
+    restoreStartTime: metrics.restoreStartTime,
+    restoreEndTime: metrics.restoreEndTime,
+    lastRestoreWindowCount: metrics.lastRestoreWindowCount,
+    windowLifecycleEventCount: metrics.windowLifecycleEvents.length - baseline.windowLifecycleEventCount
+  };
+}
+
+function resetMetricsForRun() {
+  if (app.isPackaged) {
+    throw new Error("Metrics run reset is available in development builds only.");
+  }
+
+  metrics.currentRunId = null;
+  metrics.lastRunStartedAt = null;
+  metrics.lastRunEndedAt = null;
+  metrics.lastRunDurationMs = null;
+  metrics.lastRunOptions = null;
+  metrics.lastRunMetricsDelta = null;
+}
+
+async function runStressOpenCycle(windowKeys, delayMs) {
+  for (const key of windowKeys) {
+    await openManagedWindow(key, { focus: false });
+    await sleep(getStressDelay(delayMs));
+  }
+}
+
+async function runStressCloseSubset(windowKeys, delayMs) {
+  const closeKeys = windowKeys.slice(0, Math.floor(windowKeys.length / 2));
+
+  for (const key of closeKeys) {
+    await closeManagedWindow(key);
+    await sleep(getStressDelay(delayMs));
+  }
+
+  return closeKeys;
+}
+
+async function runStressMoveSubset(windowKeys, delayMs) {
+  const moveKeys = windowKeys.slice(0, Math.max(1, Math.floor(windowKeys.length / 2)));
+
+  for (const key of moveKeys) {
+    const instance = managedWindows.get(key);
+    if (instance && !instance.isDestroyed()) {
+      const bounds = instance.getBounds();
+      instance.setBounds({
+        x: bounds.x + 16,
+        y: bounds.y + 16,
+        width: bounds.width,
+        height: bounds.height
+      });
+    }
+
+    await updateManagedWindow(key, {
+      opacity: 0.92
+    });
+    await sleep(getStressDelay(delayMs));
+  }
+
+  return moveKeys;
+}
+
+async function runStressTest(options = {}) {
+  if (app.isPackaged) {
+    throw new Error("Stress harness is available in development builds only.");
+  }
+
+  const requestedWindowCount = Number(options.windowCount);
+  const cycleType = options.cycleType;
+  const delayMs = options.delayMs;
+
+  if (!Number.isInteger(requestedWindowCount) || requestedWindowCount <= 0) {
+    throw new Error("Stress test windowCount must be a positive integer.");
+  }
+
+  if (!["open", "open-close", "open-move", "full-cycle"].includes(cycleType)) {
+    throw new Error(`Unsupported stress cycle type: ${cycleType}`);
+  }
+
+  const availableWindowKeys = getStressHarnessAvailableWindowKeys();
+  const effectiveWindowCount = Math.min(requestedWindowCount, availableWindowKeys.length);
+  const skippedBecauseUnavailable = requestedWindowCount - effectiveWindowCount;
+  const windowKeys = getStressHarnessWindowKeys(effectiveWindowCount);
+  resetMetricsForRun();
+  const runId = `stress-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const baseline = captureMetricsBaseline();
+  const startedAt = Date.now();
+  metrics.skippedBecauseUnavailable += skippedBecauseUnavailable;
+  metrics.currentRunId = runId;
+  metrics.lastRunStartedAt = startedAt;
+  metrics.lastRunOptions = {
+    windowCount: requestedWindowCount,
+    requestedWindowCount,
+    effectiveWindowCount,
+    skippedBecauseUnavailable,
+    cycleType,
+    ...(delayMs !== undefined ? { delayMs } : {})
+  };
+
+  if (cycleType === "open") {
+    await runStressOpenCycle(windowKeys, delayMs);
+  } else if (cycleType === "open-close") {
+    await runStressOpenCycle(windowKeys, delayMs);
+    await runStressCloseSubset(windowKeys, delayMs);
+  } else if (cycleType === "open-move") {
+    await runStressOpenCycle(windowKeys, delayMs);
+    await runStressMoveSubset(windowKeys, delayMs);
+  } else if (cycleType === "full-cycle") {
+    await runStressOpenCycle(windowKeys, delayMs);
+    const movedKeys = await runStressMoveSubset(windowKeys, delayMs);
+    const closedKeys = await runStressCloseSubset(windowKeys, delayMs);
+
+    for (const key of closedKeys) {
+      await openManagedWindow(key, { focus: false });
+      await sleep(getStressDelay(delayMs));
+    }
+
+    for (const key of movedKeys.slice(0, Math.max(1, Math.floor(movedKeys.length / 2)))) {
+      await updateManagedWindow(key, { opacity: 1 });
+      await sleep(getStressDelay(delayMs));
+    }
+  }
+
+  const endedAt = Date.now();
+  const durationMs = endedAt - startedAt;
+  const delta = diffMetricsFromBaseline(baseline);
+  const finalMetrics = {
+    ...metrics,
+    windowLifecycleEvents: [...metrics.windowLifecycleEvents]
+  };
+  const finalState = getStateSnapshot();
+
+  metrics.lastRunEndedAt = endedAt;
+  metrics.lastRunDurationMs = durationMs;
+  metrics.lastRunMetricsDelta = delta;
+
+  const result = {
+    runId,
+    options: {
+      windowCount: requestedWindowCount,
+      requestedWindowCount,
+      effectiveWindowCount,
+      skippedBecauseUnavailable,
+      cycleType,
+      ...(delayMs !== undefined ? { delayMs } : {})
+    },
+    requestedWindowCount,
+    effectiveWindowCount,
+    skippedBecauseUnavailable,
+    durationMs,
+    baseline,
+    finalMetrics,
+    delta,
+    finalOpenWindowCount: finalState.windows.filter((windowState) => windowState.open).length,
+    errors: null
+  };
+
+  console.log("[desktop-shell] Stress test complete", result);
+  return result;
+}
+
+function isRestoreStressHarnessEnabled() {
+  return restoreStressHarnessEnabled;
+}
+
+function getRestoreStressWindowCount() {
+  const windowCount = Number(restoreStressWindowCountEnv);
+
+  if (!Number.isInteger(windowCount) || windowCount <= 0) {
+    throw new Error("Restore stress window count must be a positive integer.");
+  }
+
+  return windowCount;
+}
+
+function seedRestoreStressLayout() {
+  if (!isRestoreStressHarnessEnabled()) {
+    return null;
+  }
+
+  const requestedWindowCount = getRestoreStressWindowCount();
+  const availableWindowKeys = getStressHarnessAvailableWindowKeys();
+  const effectiveWindowCount = Math.min(requestedWindowCount, availableWindowKeys.length);
+  const skippedBecauseUnavailable = requestedWindowCount - effectiveWindowCount;
+  const windowKeys = getStressHarnessWindowKeys(effectiveWindowCount);
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const seededLayoutState = createEmptyLayoutState();
+
+  for (const key of windowKeys) {
+    seededLayoutState.windows[key] = {
+      ...createDefaultWindowState(key),
+      open: true,
+      displayId: primaryDisplay.id,
+      bounds: getDefaultBounds(key, primaryDisplay)
+    };
+  }
+
+  writeJsonFileAtomically(layoutPath, seededLayoutState);
+
+  return {
+    runId: restoreStressRunId,
+    requestedWindowCount,
+    effectiveWindowCount,
+    skippedBecauseUnavailable,
+    seededWindowKeys: windowKeys,
+    userDataDir: app.getPath("userData"),
+    layoutPath
+  };
+}
+
+function serializeError(error, stage) {
+  return {
+    stage,
+    name: error?.name ?? "Error",
+    message: error?.message ?? String(error)
+  };
+}
+
+function recordRestoreStressHarnessError(error, stage) {
+  if (!isRestoreStressHarnessEnabled()) {
+    return;
+  }
+
+  restoreStressHarnessErrors.push(serializeError(error, stage));
+}
+
+function buildRestoreStressResult(seedResult, errors = []) {
+  const finalState = getStateSnapshot();
+  const restoreStartTime = metrics.restoreStartTime;
+  const restoreEndTime = metrics.restoreEndTime;
+  const durationMs =
+    Number.isFinite(restoreStartTime) && Number.isFinite(restoreEndTime)
+      ? restoreEndTime - restoreStartTime
+      : null;
+
+  return {
+    runId: seedResult?.runId ?? restoreStressRunId,
+    requestedWindowCount: seedResult?.requestedWindowCount ?? Number(restoreStressWindowCountEnv),
+    effectiveWindowCount: seedResult?.effectiveWindowCount ?? null,
+    skippedBecauseUnavailable: seedResult?.skippedBecauseUnavailable ?? null,
+    durationMs,
+    restoreStartTime,
+    restoreEndTime,
+    lastRestoreWindowCount: metrics.lastRestoreWindowCount,
+    broadcastCount: metrics.broadcastCount,
+    broadcastPayloadSize: metrics.broadcastPayloadSize,
+    windowsOpened: metrics.windowsOpened,
+    windowsClosed: metrics.windowsClosed,
+    finalOpenWindowCount: finalState.windows.filter((windowState) => windowState.open).length,
+    userDataDir: app.getPath("userData"),
+    layoutPath,
+    errors: errors.length > 0 ? errors : null
+  };
+}
+
+function maybeReportRestoreStressResult(seedResult, errors = []) {
+  if (!isRestoreStressHarnessEnabled()) {
+    return;
+  }
+
+  const result = buildRestoreStressResult(seedResult, errors);
+  console.log("[desktop-shell] Restore stress complete", result);
+
+  if (process.env.SCALPSTATION_RESTORE_STRESS_AUTO_EXIT === "1") {
+    setTimeout(() => {
+      app.quit();
+    }, 250);
+  }
 }
 
 async function resetLayout() {
@@ -2236,6 +4506,8 @@ async function startBackendRuntime() {
 
 function registerIpcHandlers() {
   ipcMain.handle("desktop-shell:get-state", () => getStateSnapshot());
+  ipcMain.handle("desktop-shell:get-metrics", () => metrics);
+  ipcMain.handle("desktop-shell:run-stress-test", (_event, options) => runStressTest(options ?? {}));
   ipcMain.handle("desktop-shell:open-window", (_event, key) => openManagedWindow(key));
   ipcMain.handle("desktop-shell:close-window", (_event, key) => closeManagedWindow(key));
   ipcMain.handle("desktop-shell:focus-window", (_event, key) => focusManagedWindow(key));
@@ -2246,6 +4518,41 @@ function registerIpcHandlers() {
     updateAlertMonitorSettings(patch ?? {});
   });
   ipcMain.handle("desktop-shell:reset-layout", () => resetLayout());
+  ipcMain.handle("desktop-shell:list-workspaces", () => listWorkspaces());
+  ipcMain.handle("desktop-shell:open-workspace", (_event, id, mode) =>
+    openWorkspace(id, mode)
+  );
+  ipcMain.handle("desktop-shell:list-layouts", () => listSavedLayouts());
+  ipcMain.handle("desktop-shell:save-current-layout", (_event, name) => saveCurrentLayout(name));
+  ipcMain.handle("desktop-shell:load-layout", (_event, name) => loadSavedLayout(name));
+  ipcMain.handle("desktop-shell:delete-layout", (_event, name) => deleteSavedLayout(name));
+  ipcMain.handle("desktop-shell:export-layout", (_event, name) => exportSavedLayout(name));
+  ipcMain.handle("desktop-shell:import-layout", (_event, payload) => importSavedLayout(payload));
+  ipcMain.handle("desktop-shell:list-displays", () => listDisplays());
+  ipcMain.handle("desktop-shell:list-monitor-profiles", () => listMonitorProfiles());
+  ipcMain.handle("desktop-shell:save-monitor-profile", (_event, profile) =>
+    saveMonitorProfile(profile ?? {})
+  );
+  ipcMain.handle("desktop-shell:apply-monitor-profile", (_event, profileId) =>
+    applyMonitorProfile(profileId)
+  );
+  ipcMain.handle("desktop-shell:list-groups", () => listWindowGroups());
+  ipcMain.handle("desktop-shell:create-group", (_event, payload) => {
+    createWindowGroup(payload ?? {});
+    return broadcastState();
+  });
+  ipcMain.handle("desktop-shell:update-group-symbol", (_event, groupId, symbol) => {
+    updateWindowGroupSymbol(groupId, symbol);
+    return broadcastState();
+  });
+  ipcMain.handle("desktop-shell:assign-window-to-group", (_event, key, groupId) => {
+    assignWindowToGroup(key, groupId);
+    return broadcastState();
+  });
+  ipcMain.handle("desktop-shell:unassign-window-from-group", (_event, key) => {
+    unassignWindowFromGroup(key);
+    return broadcastState();
+  });
   ipcMain.handle("desktop-shell:show-control-center", async () => {
     await showControlCenter();
   });
@@ -2261,7 +4568,7 @@ function registerIpcHandlers() {
 async function stopRuntime() {
   runtimeStopping = true;
   clearScheduledBroadcastState();
-  flushLayoutStateSave();
+  syncManagedWindowsIntoLayoutState();
   saveAlertMonitorSettings();
   stopAlertMonitor();
   clearSignalOverlayHideTimer();
@@ -2291,6 +4598,20 @@ async function stopRuntime() {
 }
 
 app.whenReady().then(async () => {
+  let restoreStressSeed = null;
+  restoreStressHarnessErrors = [];
+
+  if (isRestoreStressHarnessEnabled()) {
+    try {
+      restoreStressSeed = seedRestoreStressLayout();
+    } catch (error) {
+      recordRestoreStressHarnessError(error, "restore-stress-seed");
+      console.error("[desktop-shell] Restore stress seed failed", error);
+    }
+  }
+
+  layoutState = loadLayoutState();
+  windowGroupsRegistry = loadWindowGroupsRegistry();
   createTray();
   refreshApplicationChrome();
   registerIpcHandlers();
@@ -2298,14 +4619,15 @@ app.whenReady().then(async () => {
   try {
     await startBackendRuntime();
   } catch (error) {
+    recordRestoreStressHarnessError(error, "backend-startup");
     console.error(`${appName} backend startup failed; see ${desktopBackendLogPath}`, error);
   }
   connectAlertMonitor();
-  void openManagedWindow("dashboard");
-  void restoreSavedManagedWindows().finally(() => {
-    void focusManagedWindow("dashboard");
-  });
-  broadcastState();
+  await openInitialShellWindow();
+  if (!didBroadcastAfterManagedWindowRestore) {
+    broadcastState();
+  }
+  maybeReportRestoreStressResult(restoreStressSeed, restoreStressHarnessErrors);
 });
 
 app.on("window-all-closed", () => {
@@ -2315,7 +4637,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   runtimeStopping = true;
   clearScheduledBroadcastState();
-  flushLayoutStateSave();
+  clearScheduledLayoutStateSave();
   saveAlertMonitorSettings();
 });
 
@@ -2331,9 +4653,5 @@ app.on("will-quit", (event) => {
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    void openManagedWindow("dashboard");
-  } else {
-    void focusManagedWindow("dashboard");
-  }
+  void showControlCenter();
 });

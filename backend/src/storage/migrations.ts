@@ -771,6 +771,67 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_unified_signals_created_at
         ON unified_signals(created_at);
     `
+  },
+  {
+    id: 20,
+    name: "create_decision_chain_integrity",
+    sql: `
+      CREATE TABLE IF NOT EXISTS decision_chain_integrity (
+        id TEXT PRIMARY KEY,
+        lifecycle_id TEXT,
+        review_id TEXT,
+        order_intent_id TEXT,
+        decision_context_id TEXT,
+        unified_signal_id TEXT,
+        status TEXT NOT NULL,
+        missing_links_json TEXT NOT NULL,
+        checked_at INTEGER NOT NULL,
+        source TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_decision_chain_integrity_lifecycle_checked_at
+        ON decision_chain_integrity(lifecycle_id, checked_at);
+
+      CREATE INDEX IF NOT EXISTS idx_decision_chain_integrity_review_checked_at
+        ON decision_chain_integrity(review_id, checked_at);
+
+      CREATE INDEX IF NOT EXISTS idx_decision_chain_integrity_status_checked_at
+        ON decision_chain_integrity(status, checked_at);
+    `
+  },
+  {
+    id: 21,
+    name: "create_order_preflights",
+    sql: `
+      CREATE TABLE IF NOT EXISTS order_preflights (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        side TEXT NOT NULL,
+        type TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        normalized_quantity REAL,
+        price REAL,
+        normalized_price REAL,
+        notional REAL,
+        decision_context_id TEXT,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        used_at INTEGER,
+        invalidated_at INTEGER,
+        reason TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_order_preflights_request_id
+        ON order_preflights(request_id);
+
+      CREATE INDEX IF NOT EXISTS idx_order_preflights_status_expires_at
+        ON order_preflights(status, expires_at);
+
+      CREATE INDEX IF NOT EXISTS idx_order_preflights_decision_context_id
+        ON order_preflights(decision_context_id);
+    `
   }
 ];
 

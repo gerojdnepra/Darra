@@ -1,13 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { SignalBillboardOverlay } from "@/components/signal-billboard-overlay";
+import { DesktopWindowGroupBadge } from "@/components/desktop-window-group-badge";
 import { createGuestSession } from "@/lib/cabinet";
 import {
   getDesktopBridge,
+  type DesktopCreateWindowGroupRequest,
   type DesktopDisplaySnapshot,
   type DesktopManagedWindowKey,
+  type DesktopMonitorProfileRoleAssignment,
+  type DesktopMonitorProfileSummary,
+  type DesktopMonitorRole,
+  type DesktopSavedLayoutSummary,
   type DesktopShellState,
+  type DesktopWindowGroupColor,
+  type DesktopWindowGroupContextMode,
   type DesktopWindowSnapshot
 } from "@/lib/desktop-shell";
 import {
@@ -23,13 +31,18 @@ import {
   normalizeInterfaceLanguage
 } from "@/lib/interface-language";
 import {
+  defaultScenarioWorkspaceId,
+  defaultWorkspacePresetId,
   desktopManagedModuleSections,
   desktopModuleSections,
   getDesktopModuleLabel,
-  isDesktopManagedModuleSectionId,
+  scenarioWorkspaceIds,
+  scenarioWorkspaces,
   workspacePresetIds,
   workspacePresets,
   type DesktopManagedModuleSectionId,
+  type DesktopScenarioWorkspaceId,
+  type DesktopWorkspaceOpenMode,
   type WorkspacePresetId
 } from "@/lib/module-sections";
 import {
@@ -289,8 +302,8 @@ const controlCenterCopy = {
     couldNotOpenBackendWebsocket: "Could not open backend websocket.",
     enterBinanceCredentials: "Enter Binance API key and secret.",
     accountStatusFallback: "Connect Binance to see positions and stream health.",
-    windowsDashboardTitle: "Dashboard",
-    windowsDashboardDetail: "Full board with all cards in one window.",
+    windowsDashboardTitle: "Advanced Legacy Workspace",
+    windowsDashboardDetail: "Advanced single-window board with all legacy cards in one window.",
     windowsModuleDetail:
       "Separate module window with its own position, transparency and pin state.",
     windowsRoute: "Route",
@@ -309,6 +322,93 @@ const controlCenterCopy = {
     windowsTargetScreen: "Target screen",
     windowsAutoCurrentScreen: "Auto / current screen",
     windowsAlwaysOnTop: "Always on top",
+    windowsGroupLabel: "Window Group",
+    windowsGroupNone: "No group",
+    windowsGroupClear: "Clear assignment",
+    windowGroupsEyebrow: "Window Groups",
+    windowGroupsTitle: "Symbol context",
+    windowGroupsDescription:
+      "Metadata only. Does not synchronize chart, orders, risk, or symbol selection.",
+    windowGroupsLabel: "Group label",
+    windowGroupsLabelPlaceholder: "Example: BTC Group",
+    windowGroupsSymbol: "Symbol metadata",
+    windowGroupsSymbolPlaceholder: "Example: BTCUSDT",
+    windowGroupsColor: "Color",
+    windowGroupsContextMode: "Context mode",
+    windowGroupsCreate: "Create Group",
+    windowGroupsLoading: "Loading window groups...",
+    windowGroupsEmpty: "No window groups yet.",
+    windowGroupsAssignedWindows: "Assigned windows",
+    windowGroupsUpdateSymbol: "Assign Symbol",
+    windowGroupsCreated: "Window group created.",
+    windowGroupsSymbolUpdated: "Group symbol metadata updated.",
+    windowGroupsAssigned: "Window assigned to group.",
+    windowGroupsUnassigned: "Window unassigned from group.",
+    windowGroupColorBlue: "Blue",
+    windowGroupColorGreen: "Green",
+    windowGroupColorAmber: "Amber",
+    windowGroupColorRose: "Rose",
+    windowGroupColorViolet: "Violet",
+    windowGroupColorSlate: "Slate",
+    windowGroupModeShared: "Shared",
+    windowGroupModeLocked: "Locked",
+    savedLayoutsEyebrow: "Saved layouts",
+    savedLayoutsTitle: "Named layouts",
+    savedLayoutsDescription:
+      "Store named managed-window arrangements without replacing the active session layout. Loading a saved layout updates desktop-layout.json for the next startup.",
+    savedLayoutsNameLabel: "Layout name",
+    savedLayoutsNamePlaceholder: "Example: BTC scalp dual monitor",
+    savedLayoutsSaveCurrent: "Save current",
+    savedLayoutsImport: "Import",
+    savedLayoutsLoading: "Loading saved layouts...",
+    savedLayoutsEmpty: "No named layouts saved yet.",
+    savedLayoutsUpdated: "Updated",
+    savedLayoutsOpenWindows: "Open windows",
+    savedLayoutsLoad: "Load",
+    savedLayoutsDelete: "Delete",
+    savedLayoutsExport: "Export",
+    savedLayoutsSaved: "Saved layout created.",
+    savedLayoutsLoaded: "Saved layout applied.",
+    savedLayoutsDeleted: "Saved layout deleted.",
+    savedLayoutsExported: "Saved layout exported.",
+    savedLayoutsImported: "Saved layout imported.",
+    savedLayoutsImportFailed: "Could not read the selected layout file.",
+    scenarioWorkspacesEyebrow: "Advanced scenarios",
+    scenarioWorkspacesTitle: "Open advanced / experimental scenarios",
+    scenarioWorkspacesDescription:
+      "Secondary workflows for experienced users. Opening one also applies the matching visible-module intent.",
+    scenarioWorkspacesModeLabel: "Open mode",
+    scenarioWorkspacesModeMerge: "Merge",
+    scenarioWorkspacesModeOpenMissingOnly: "Open missing only",
+    scenarioWorkspacesOpen: "Open Workspace",
+    scenarioWorkspacesWindowCount: "windows",
+    scenarioWorkspacesOpened: "Workspace opened.",
+    monitorProfilesEyebrow: "Monitor profiles",
+    monitorProfilesTitle: "Physical topology",
+    monitorProfilesDescription:
+      "Save monitor roles separately from layouts. Applying a profile moves only currently open windows and preserves their trading state.",
+    monitorProfilesNameLabel: "Profile name",
+    monitorProfilesNamePlaceholder: "Example: Desk dual monitor",
+    monitorProfilesCurrentDisplays: "Current displays",
+    monitorProfilesSave: "Save profile",
+    monitorProfilesApply: "Apply profile",
+    monitorProfilesLoading: "Loading monitor profiles...",
+    monitorProfilesEmpty: "No monitor profiles saved yet.",
+    monitorProfilesUpdated: "Updated",
+    monitorProfilesCapturedDisplays: "Captured displays",
+    monitorProfilesSaved: "Monitor profile saved.",
+    monitorProfilesApplied: "Monitor profile applied.",
+    monitorRolePrimary: "Primary",
+    monitorRoleChart: "Chart",
+    monitorRoleExecution: "Execution",
+    monitorRoleRisk: "Risk",
+    monitorRoleReview: "Review",
+    legacyWorkspacePresetsEyebrow: "Advanced legacy dashboard presets",
+    legacyWorkspacePresetsTitle: "Advanced Legacy Workspace presets",
+    legacyWorkspacePresetsDescription:
+      "Experimental single-window presets. They only change visible blocks inside the legacy dashboard.",
+    legacyWorkspacePresetsCustom: "Custom",
+    legacyWorkspacePresetsBlocks: "workflow blocks",
     modelMultilingual: "multilingual",
     couldNotLoadTtsModels: "Could not load TTS models."
   },
@@ -419,8 +519,8 @@ const controlCenterCopy = {
     couldNotOpenBackendWebsocket: "Не удалось открыть backend websocket.",
     enterBinanceCredentials: "Введите Binance API key и secret.",
     accountStatusFallback: "Подключите Binance, чтобы видеть позиции и состояние потока.",
-    windowsDashboardTitle: "Дашборд",
-    windowsDashboardDetail: "Полная доска со всеми карточками в одном окне.",
+    windowsDashboardTitle: "Advanced Legacy Workspace",
+    windowsDashboardDetail: "Advanced single-window board with all legacy cards in one window.",
     windowsModuleDetail:
       "Отдельное окно модуля со своей позицией, прозрачностью и закреплением поверх окон.",
     windowsRoute: "Маршрут",
@@ -439,8 +539,95 @@ const controlCenterCopy = {
     windowsTargetScreen: "Целевой экран",
     windowsAutoCurrentScreen: "Авто / текущий экран",
     windowsAlwaysOnTop: "Всегда поверх",
+    windowsGroupLabel: "Window Group",
+    windowsGroupNone: "No group",
+    windowsGroupClear: "Clear assignment",
+    windowGroupsEyebrow: "Window Groups",
+    windowGroupsTitle: "Symbol context",
+    windowGroupsDescription:
+      "Metadata only. Does not synchronize chart, orders, risk, or symbol selection.",
+    windowGroupsLabel: "Group label",
+    windowGroupsLabelPlaceholder: "Example: BTC Group",
+    windowGroupsSymbol: "Symbol metadata",
+    windowGroupsSymbolPlaceholder: "Example: BTCUSDT",
+    windowGroupsColor: "Color",
+    windowGroupsContextMode: "Context mode",
+    windowGroupsCreate: "Create Group",
+    windowGroupsLoading: "Loading window groups...",
+    windowGroupsEmpty: "No window groups yet.",
+    windowGroupsAssignedWindows: "Assigned windows",
+    windowGroupsUpdateSymbol: "Assign Symbol",
+    windowGroupsCreated: "Window group created.",
+    windowGroupsSymbolUpdated: "Group symbol metadata updated.",
+    windowGroupsAssigned: "Window assigned to group.",
+    windowGroupsUnassigned: "Window unassigned from group.",
+    windowGroupColorBlue: "Blue",
+    windowGroupColorGreen: "Green",
+    windowGroupColorAmber: "Amber",
+    windowGroupColorRose: "Rose",
+    windowGroupColorViolet: "Violet",
+    windowGroupColorSlate: "Slate",
+    windowGroupModeShared: "Shared",
+    windowGroupModeLocked: "Locked",
+    savedLayoutsEyebrow: "Сохраненные раскладки",
+    savedLayoutsTitle: "Именованные раскладки",
+    savedLayoutsDescription:
+      "Сохраняйте именованные наборы managed windows отдельно от активной сессии. При загрузке раскладки обновляется desktop-layout.json, который используется на следующем запуске.",
+    savedLayoutsNameLabel: "Название раскладки",
+    savedLayoutsNamePlaceholder: "Например: BTC scalp dual monitor",
+    savedLayoutsSaveCurrent: "Сохранить текущую",
+    savedLayoutsImport: "Импорт",
+    savedLayoutsLoading: "Загрузка сохраненных раскладок...",
+    savedLayoutsEmpty: "Пока нет сохраненных раскладок.",
+    savedLayoutsUpdated: "Обновлено",
+    savedLayoutsOpenWindows: "Открытых окон",
+    savedLayoutsLoad: "Загрузить",
+    savedLayoutsDelete: "Удалить",
+    savedLayoutsExport: "Экспорт",
+    savedLayoutsSaved: "Раскладка сохранена.",
+    savedLayoutsLoaded: "Раскладка применена.",
+    savedLayoutsDeleted: "Раскладка удалена.",
+    savedLayoutsExported: "Раскладка экспортирована.",
+    savedLayoutsImported: "Раскладка импортирована.",
+    savedLayoutsImportFailed: "Не удалось прочитать выбранный файл раскладки.",
     modelMultilingual: "мультиязык",
     couldNotLoadTtsModels: "Не удалось загрузить TTS-модели."
+    ,scenarioWorkspacesEyebrow: "Advanced scenarios"
+    ,scenarioWorkspacesTitle: "Open advanced / experimental scenarios"
+    ,scenarioWorkspacesDescription:
+      "Secondary workflows for experienced users. Opening one also applies the matching visible-module intent."
+    ,scenarioWorkspacesModeLabel: "Open mode"
+    ,scenarioWorkspacesModeMerge: "Merge"
+    ,scenarioWorkspacesModeOpenMissingOnly: "Open missing only"
+    ,scenarioWorkspacesOpen: "Open Workspace"
+    ,scenarioWorkspacesWindowCount: "windows"
+    ,scenarioWorkspacesOpened: "Workspace opened."
+    ,monitorProfilesEyebrow: "Monitor profiles"
+    ,monitorProfilesTitle: "Physical topology"
+    ,monitorProfilesDescription:
+      "Save monitor roles separately from layouts. Applying a profile moves only currently open windows and preserves their trading state."
+    ,monitorProfilesNameLabel: "Profile name"
+    ,monitorProfilesNamePlaceholder: "Example: Desk dual monitor"
+    ,monitorProfilesCurrentDisplays: "Current displays"
+    ,monitorProfilesSave: "Save profile"
+    ,monitorProfilesApply: "Apply profile"
+    ,monitorProfilesLoading: "Loading monitor profiles..."
+    ,monitorProfilesEmpty: "No monitor profiles saved yet."
+    ,monitorProfilesUpdated: "Updated"
+    ,monitorProfilesCapturedDisplays: "Captured displays"
+    ,monitorProfilesSaved: "Monitor profile saved."
+    ,monitorProfilesApplied: "Monitor profile applied."
+    ,monitorRolePrimary: "Primary"
+    ,monitorRoleChart: "Chart"
+    ,monitorRoleExecution: "Execution"
+    ,monitorRoleRisk: "Risk"
+    ,monitorRoleReview: "Review"
+    ,legacyWorkspacePresetsEyebrow: "Advanced legacy dashboard presets"
+    ,legacyWorkspacePresetsTitle: "Advanced Legacy Workspace presets"
+    ,legacyWorkspacePresetsDescription:
+      "Experimental single-window presets. They only change visible blocks inside the legacy dashboard."
+    ,legacyWorkspacePresetsCustom: "Custom"
+    ,legacyWorkspacePresetsBlocks: "workflow blocks"
   }
 } as const;
 
@@ -505,11 +692,94 @@ const formatDisplayLabel = (
   return displays.find((display) => display.id === displayId)?.label ?? text.unknownScreen;
 };
 
+const getMonitorRoleLabel = (
+  role: DesktopMonitorRole,
+  interfaceLanguage: InterfaceLanguage
+): string => {
+  const text = controlCenterCopy[interfaceLanguage];
+  const labels: Record<DesktopMonitorRole, string> = {
+    primary: text.monitorRolePrimary,
+    chart: text.monitorRoleChart,
+    execution: text.monitorRoleExecution,
+    risk: text.monitorRoleRisk,
+    review: text.monitorRoleReview
+  };
+
+  return labels[role];
+};
+
+const getWindowGroupColorLabel = (
+  color: DesktopWindowGroupColor,
+  interfaceLanguage: InterfaceLanguage
+): string => {
+  const text = controlCenterCopy[interfaceLanguage];
+  const labels: Record<DesktopWindowGroupColor, string> = {
+    blue: text.windowGroupColorBlue,
+    green: text.windowGroupColorGreen,
+    amber: text.windowGroupColorAmber,
+    rose: text.windowGroupColorRose,
+    violet: text.windowGroupColorViolet,
+    slate: text.windowGroupColorSlate
+  };
+
+  return labels[color];
+};
+
+const getWindowGroupContextModeLabel = (
+  mode: DesktopWindowGroupContextMode,
+  interfaceLanguage: InterfaceLanguage
+): string => {
+  const text = controlCenterCopy[interfaceLanguage];
+  return mode === "locked" ? text.windowGroupModeLocked : text.windowGroupModeShared;
+};
+
+const formatMonitorProfileRoles = (
+  profile: DesktopMonitorProfileSummary,
+  displays: DesktopDisplaySnapshot[],
+  interfaceLanguage: InterfaceLanguage
+): string =>
+  monitorProfileRoles
+    .map((role) => {
+      const displayId = profile.roles[role]?.displayId ?? null;
+      return `${getMonitorRoleLabel(role, interfaceLanguage)}: ${formatDisplayLabel(
+        displayId,
+        displays,
+        interfaceLanguage
+      )}`;
+    })
+    .join(" | ");
+
 const getErrorMessage = (
   error: unknown,
   interfaceLanguage: InterfaceLanguage
 ): string =>
   error instanceof Error ? error.message : controlCenterCopy[interfaceLanguage].desktopActionFailed;
+
+const formatSavedLayoutTimestamp = (
+  value: string,
+  interfaceLanguage: InterfaceLanguage
+): string => {
+  const timestamp = new Date(value);
+
+  if (!Number.isFinite(timestamp.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(interfaceLanguage === "ru" ? "ru-UA" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(timestamp);
+};
+
+const toSavedLayoutFileName = (name: string): string => {
+  const baseName = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return `${baseName || "desktop-layout"}.json`;
+};
 
 const marketMoodLabel = (
   regime: ScreenerFrame["overview"]["dominantRegime"] | null | undefined,
@@ -704,6 +974,22 @@ const createWorkspacePresetVisibleSections = (
   ) as SectionVisibilityState;
 };
 
+const createScenarioWorkspaceVisibleSections = (
+  workspaceId: DesktopScenarioWorkspaceId
+): SectionVisibilityState | null => {
+  const workspace = scenarioWorkspaces[workspaceId];
+
+  if (!workspace) {
+    return null;
+  }
+
+  const visibleSet = new Set(workspace.windows);
+
+  return Object.fromEntries(
+    desktopModuleSections.map((section) => [section, visibleSet.has(section)])
+  ) as SectionVisibilityState;
+};
+
 const visibleSectionsMatchPreset = (
   visibleSections: SectionVisibilityState,
   presetId: WorkspacePresetId
@@ -719,23 +1005,50 @@ const visibleSectionsMatchPreset = (
   );
 };
 
-const getPresetWindowSections = (
-  presetId: WorkspacePresetId | null
-): DesktopManagedModuleSectionId[] => {
-  if (!presetId) {
-    return [];
-  }
+const desktopControlCenterWindowPriority: readonly DesktopManagedWindowKey[] = [
+  "dashboard",
+  "alerts",
+  "screener",
+  "chartPanel",
+  "account",
+  "activeTrades",
+  "riskCenter",
+  "knowledgeWorkspace"
+];
+const scenarioWorkspaceOpenModes: readonly DesktopWorkspaceOpenMode[] = [
+  "merge",
+  "open-missing-only"
+];
+const monitorProfileRoles: readonly DesktopMonitorRole[] = [
+  "primary",
+  "chart",
+  "execution",
+  "risk",
+  "review"
+];
+const windowGroupColors: readonly DesktopWindowGroupColor[] = [
+  "blue",
+  "green",
+  "amber",
+  "rose",
+  "violet",
+  "slate"
+];
+const windowGroupContextModes: readonly DesktopWindowGroupContextMode[] = [
+  "shared",
+  "locked"
+];
 
-  const preset = workspacePresets[presetId];
-
-  if (!preset) {
-    return [];
-  }
-
-  const windowSections = preset.windowSections ?? preset.visibleSections;
-
-  return Array.from(new Set(windowSections.filter(isDesktopManagedModuleSectionId)));
-};
+const createDefaultMonitorProfileRoles = (): Record<
+  DesktopMonitorRole,
+  DesktopMonitorProfileRoleAssignment
+> => ({
+  primary: { displayId: null },
+  chart: { displayId: null },
+  execution: { displayId: null },
+  risk: { displayId: null },
+  review: { displayId: null }
+});
 
 export function DesktopControlCenter() {
   const bridge = getDesktopBridge();
@@ -759,6 +1072,28 @@ export function DesktopControlCenter() {
   const [shellState, setShellState] = useState<DesktopShellState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyToken, setBusyToken] = useState<string | null>(null);
+  const [savedLayouts, setSavedLayouts] = useState<DesktopSavedLayoutSummary[]>([]);
+  const [savedLayoutsLoading, setSavedLayoutsLoading] = useState(false);
+  const [savedLayoutNameDraft, setSavedLayoutNameDraft] = useState("");
+  const [savedLayoutNotice, setSavedLayoutNotice] = useState<string | null>(null);
+  const [monitorProfiles, setMonitorProfiles] = useState<DesktopMonitorProfileSummary[]>([]);
+  const [monitorProfilesLoading, setMonitorProfilesLoading] = useState(false);
+  const [monitorProfileNameDraft, setMonitorProfileNameDraft] = useState("");
+  const [monitorProfileRolesDraft, setMonitorProfileRolesDraft] = useState(
+    createDefaultMonitorProfileRoles
+  );
+  const [monitorProfileNotice, setMonitorProfileNotice] = useState<string | null>(null);
+  const [scenarioWorkspaceOpenMode, setScenarioWorkspaceOpenMode] =
+    useState<DesktopWorkspaceOpenMode>("open-missing-only");
+  const [scenarioWorkspaceNotice, setScenarioWorkspaceNotice] = useState<string | null>(null);
+  const [windowGroupLabelDraft, setWindowGroupLabelDraft] = useState("");
+  const [windowGroupSymbolDraft, setWindowGroupSymbolDraft] = useState("");
+  const [windowGroupColorDraft, setWindowGroupColorDraft] =
+    useState<DesktopWindowGroupColor>("blue");
+  const [windowGroupContextModeDraft, setWindowGroupContextModeDraft] =
+    useState<DesktopWindowGroupContextMode>("shared");
+  const [windowGroupSymbolDrafts, setWindowGroupSymbolDrafts] = useState<Record<string, string>>({});
+  const [windowGroupNotice, setWindowGroupNotice] = useState<string | null>(null);
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [runtimeSession, setRuntimeSession] = useState<CabinetSession>(createGuestSession());
   const [activeProfile, setActiveProfile] = useState<CabinetProfile | null>(null);
@@ -798,6 +1133,7 @@ export function DesktopControlCenter() {
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const previewAudioUrlRef = useRef<string | null>(null);
   const previewAbortControllerRef = useRef<AbortController | null>(null);
+  const importLayoutInputRef = useRef<HTMLInputElement | null>(null);
 
   const interfaceLanguage = normalizeInterfaceLanguage(
     uiPreferences.interfaceLanguage ?? shellState?.interfaceLanguage ?? defaultInterfaceLanguage
@@ -823,6 +1159,14 @@ export function DesktopControlCenter() {
   const marketPulse = frame?.overview.marketPulse ?? null;
   const runtimeModeLabel =
     runtimeSession.mode === "authenticated" ? text.runtimeAuthenticated : text.runtimeGuest;
+  const normalizedSavedLayoutName = savedLayoutNameDraft.replace(/\s+/g, " ").trim();
+  const normalizedMonitorProfileName = monitorProfileNameDraft.replace(/\s+/g, " ").trim();
+  const normalizedWindowGroupLabel = windowGroupLabelDraft.replace(/\s+/g, " ").trim();
+  const normalizedWindowGroupSymbol = windowGroupSymbolDraft.replace(/\s+/g, "").trim().toUpperCase();
+  const savedLayoutsBusy = busyToken?.startsWith("saved-layouts:") ?? false;
+  const monitorProfilesBusy = busyToken?.startsWith("monitor-profiles:") ?? false;
+  const scenarioWorkspaceBusy = busyToken?.startsWith("scenario-workspace:") ?? false;
+  const windowGroupsBusy = busyToken?.startsWith("window-groups:") ?? false;
   const activeWorkspacePresetId = useMemo(
     () =>
       workspacePresetIds.find((presetId) =>
@@ -830,35 +1174,81 @@ export function DesktopControlCenter() {
       ) ?? null,
     [uiPreferences.visibleSections]
   );
-  const activeWorkspaceWindowSections = useMemo(
-    () => getPresetWindowSections(activeWorkspacePresetId),
-    [activeWorkspacePresetId]
+  const defaultScenarioWorkspace = scenarioWorkspaces[defaultScenarioWorkspaceId];
+  const secondaryScenarioWorkspaceIds = useMemo(
+    () => scenarioWorkspaceIds.filter((workspaceId) => workspaceId !== defaultScenarioWorkspaceId),
+    []
+  );
+  const betaWorkflowWindowLabels = useMemo(
+    () =>
+      defaultScenarioWorkspace.windows.map((section) =>
+        getDesktopModuleLabel(section, interfaceLanguage)
+      ),
+    [defaultScenarioWorkspace.windows, interfaceLanguage]
   );
 
   if (!syncSourceIdRef.current) {
     syncSourceIdRef.current = createRuntimeSyncSourceId();
   }
 
-  const orderedWindows = useMemo(
-    () => [
+  const orderedWindows = useMemo(() => {
+    const orderedManagedSections = [
+      ...desktopControlCenterWindowPriority.filter(
+        (key): key is DesktopManagedModuleSectionId => key !== "dashboard"
+      ),
+      ...desktopManagedModuleSections.filter(
+        (section) =>
+          !desktopControlCenterWindowPriority.includes(section as DesktopManagedWindowKey)
+      )
+    ];
+
+    return [
+      ...orderedManagedSections.map((section) => ({
+        key: section,
+        title: getDesktopModuleLabel(section, interfaceLanguage),
+        detail: text.windowsModuleDetail
+      })),
       {
         key: "dashboard" as const,
         title: text.windowsDashboardTitle,
         detail: text.windowsDashboardDetail
-      },
-      ...desktopManagedModuleSections.map((section) => ({
-        key: section,
-        title: getDesktopModuleLabel(section, interfaceLanguage),
-        detail: text.windowsModuleDetail
-      }))
-    ],
-    [interfaceLanguage, text.windowsDashboardDetail, text.windowsDashboardTitle, text.windowsModuleDetail]
-  );
+      }
+    ];
+  }, [
+    interfaceLanguage,
+    text.windowsDashboardDetail,
+    text.windowsDashboardTitle,
+    text.windowsModuleDetail
+  ]);
 
   const windowsByKey = useMemo(
     () => new Map((shellState?.windows ?? []).map((windowState) => [windowState.key, windowState])),
     [shellState]
   );
+  const windowGroupsById: DesktopShellState["windowGroups"]["groups"] =
+    shellState?.windowGroups.groups ?? {};
+  const windowGroupAssignments: Partial<DesktopShellState["windowGroups"]["assignments"]> =
+    shellState?.windowGroups.assignments ?? {};
+  const windowGroupList = useMemo(
+    () =>
+      Object.values(windowGroupsById).sort((left, right) =>
+        left.label.localeCompare(right.label)
+      ),
+    [windowGroupsById]
+  );
+  const windowGroupAssignedCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const groupId of Object.values(windowGroupAssignments)) {
+      if (!groupId) {
+        continue;
+      }
+
+      counts.set(groupId, (counts.get(groupId) ?? 0) + 1);
+    }
+
+    return counts;
+  }, [windowGroupAssignments]);
 
   useEffect(() => {
     backendWsUrlRef.current = backendWsUrl;
@@ -867,6 +1257,27 @@ export function DesktopControlCenter() {
   useEffect(() => {
     interfaceLanguageRef.current = normalizeInterfaceLanguage(uiPreferences.interfaceLanguage);
   }, [uiPreferences.interfaceLanguage]);
+
+  useEffect(() => {
+    setWindowGroupSymbolDrafts((current) => {
+      const next: Record<string, string> = {};
+      let changed = false;
+
+      for (const group of windowGroupList) {
+        next[group.groupId] = current[group.groupId] ?? group.symbol ?? "";
+
+        if (next[group.groupId] !== current[group.groupId]) {
+          changed = true;
+        }
+      }
+
+      if (Object.keys(current).length !== Object.keys(next).length) {
+        changed = true;
+      }
+
+      return changed ? next : current;
+    });
+  }, [windowGroupList]);
 
   const voiceCandidates = useMemo(() => {
     const matchingVoices = availableSpeechVoices.filter((voice) =>
@@ -922,6 +1333,142 @@ export function DesktopControlCenter() {
     }
   };
 
+  const handleSaveCurrentLayout = () => {
+    if (!bridge || !normalizedSavedLayoutName) {
+      return;
+    }
+
+    setSavedLayoutNotice(null);
+
+    void runAction("saved-layouts:save", async () => {
+      const nextLayouts = await bridge.saveCurrentLayout(normalizedSavedLayoutName);
+      setSavedLayouts(nextLayouts);
+      setSavedLayoutNameDraft("");
+      setSavedLayoutNotice(text.savedLayoutsSaved);
+    });
+  };
+
+  const handleLoadSavedLayout = (name: string) => {
+    if (!bridge) {
+      return;
+    }
+
+    setSavedLayoutNotice(null);
+
+    void runAction(`saved-layouts:load:${name}`, async () => {
+      const nextState = await bridge.loadLayout(name);
+      setSavedLayoutNotice(text.savedLayoutsLoaded);
+      return nextState;
+    });
+  };
+
+  const handleDeleteSavedLayout = (name: string) => {
+    if (!bridge) {
+      return;
+    }
+
+    setSavedLayoutNotice(null);
+
+    void runAction(`saved-layouts:delete:${name}`, async () => {
+      const nextLayouts = await bridge.deleteLayout(name);
+      setSavedLayouts(nextLayouts);
+      setSavedLayoutNotice(text.savedLayoutsDeleted);
+    });
+  };
+
+  const handleExportSavedLayout = (name: string) => {
+    if (!bridge) {
+      return;
+    }
+
+    setSavedLayoutNotice(null);
+
+    void runAction(`saved-layouts:export:${name}`, async () => {
+      const payload = await bridge.exportLayout(name);
+      const objectUrl = URL.createObjectURL(
+        new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
+      );
+      const downloadLink = document.createElement("a");
+
+      downloadLink.href = objectUrl;
+      downloadLink.download = toSavedLayoutFileName(payload.name);
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+      URL.revokeObjectURL(objectUrl);
+      setSavedLayoutNotice(text.savedLayoutsExported);
+    });
+  };
+
+  const handleImportSavedLayout = (event: ChangeEvent<HTMLInputElement>) => {
+    if (!bridge) {
+      event.target.value = "";
+      return;
+    }
+
+    const [selectedFile] = Array.from(event.target.files ?? []);
+    event.target.value = "";
+
+    if (!selectedFile) {
+      return;
+    }
+
+    setSavedLayoutNotice(null);
+
+    void runAction(`saved-layouts:import:${selectedFile.name}`, async () => {
+      let payload = "";
+
+      try {
+        payload = await selectedFile.text();
+      } catch {
+        throw new Error(text.savedLayoutsImportFailed);
+      }
+
+      const nextLayouts = await bridge.importLayout(payload);
+      setSavedLayouts(nextLayouts);
+      setSavedLayoutNotice(text.savedLayoutsImported);
+    });
+  };
+
+  const handleMonitorRoleChange = (role: DesktopMonitorRole, displayId: number | null) => {
+    setMonitorProfileRolesDraft((current) => ({
+      ...current,
+      [role]: { displayId }
+    }));
+  };
+
+  const handleSaveMonitorProfile = () => {
+    if (!bridge || !normalizedMonitorProfileName) {
+      return;
+    }
+
+    setMonitorProfileNotice(null);
+
+    void runAction("monitor-profiles:save", async () => {
+      const nextProfiles = await bridge.saveMonitorProfile({
+        name: normalizedMonitorProfileName,
+        roles: monitorProfileRolesDraft
+      });
+      setMonitorProfiles(nextProfiles);
+      setMonitorProfileNameDraft("");
+      setMonitorProfileNotice(text.monitorProfilesSaved);
+    });
+  };
+
+  const handleApplyMonitorProfile = (profileId: string) => {
+    if (!bridge) {
+      return;
+    }
+
+    setMonitorProfileNotice(null);
+
+    void runAction(`monitor-profiles:apply:${profileId}`, async () => {
+      const nextState = await bridge.applyMonitorProfile(profileId);
+      setMonitorProfileNotice(text.monitorProfilesApplied);
+      return nextState;
+    });
+  };
+
   const handleInterfaceLanguageSelect = (value: InterfaceLanguage) => {
     preferLocalInterfaceLanguageRef.current = true;
     interfaceLanguageRef.current = value;
@@ -938,28 +1485,110 @@ export function DesktopControlCenter() {
     setVisibleSections(nextVisibleSections);
   };
 
-  const handleOpenWorkspaceWindows = () => {
-    if (!bridge || !activeWorkspacePresetId) {
+  const handleOpenScenarioWorkspace = (workspaceId: DesktopScenarioWorkspaceId) => {
+    if (!bridge) {
       return;
     }
 
-    if (!activeWorkspaceWindowSections.length) {
+    const workspace = scenarioWorkspaces[workspaceId];
+    const nextVisibleSections = createScenarioWorkspaceVisibleSections(workspaceId);
+
+    if (!workspace || !nextVisibleSections) {
       return;
     }
 
-    void runAction("workspace-windows", async () => {
-      let nextState: DesktopShellState | void = undefined;
+    setVisibleSections(nextVisibleSections);
+    setScenarioWorkspaceNotice(null);
 
-      for (const section of activeWorkspaceWindowSections) {
-        const windowKey: DesktopManagedWindowKey = section;
-        const windowState = windowsByKey.get(windowKey);
-        nextState = windowState?.open
-          ? await bridge.focusWindow(windowKey)
-          : await bridge.openWindow(windowKey);
-      }
+    void runAction(`scenario-workspace:${workspaceId}`, async () => {
+      const visibilitySnapshot = getPersistableState();
 
-      await bridge.showControlCenter();
+      await persistCurrentState(visibilitySnapshot).catch(() => undefined);
+      broadcastRuntimeState(visibilitySnapshot);
 
+      const nextState = await bridge.openWorkspace(workspaceId, scenarioWorkspaceOpenMode);
+      setScenarioWorkspaceNotice(`${workspace.label}: ${text.scenarioWorkspacesOpened}`);
+      return nextState;
+    });
+  };
+
+  const handleCreateWindowGroup = () => {
+    if (!bridge || !normalizedWindowGroupLabel) {
+      return;
+    }
+
+    const payload: DesktopCreateWindowGroupRequest = {
+      label: normalizedWindowGroupLabel,
+      symbol: normalizedWindowGroupSymbol || null,
+      color: windowGroupColorDraft,
+      contextMode: windowGroupContextModeDraft
+    };
+
+    setWindowGroupNotice(null);
+
+    void runAction("window-groups:create", async () => {
+      const nextState = await bridge.createGroup(payload);
+      setWindowGroupLabelDraft("");
+      setWindowGroupSymbolDraft("");
+      setWindowGroupColorDraft("blue");
+      setWindowGroupContextModeDraft("shared");
+      setWindowGroupNotice(text.windowGroupsCreated);
+      return nextState;
+    });
+  };
+
+  const handleUpdateWindowGroupSymbol = (groupId: string) => {
+    if (!bridge) {
+      return;
+    }
+
+    const nextSymbol = (windowGroupSymbolDrafts[groupId] ?? "")
+      .replace(/\s+/g, "")
+      .trim()
+      .toUpperCase();
+
+    setWindowGroupNotice(null);
+
+    void runAction(`window-groups:symbol:${groupId}`, async () => {
+      const nextState = await bridge.updateGroupSymbol(groupId, nextSymbol || null);
+      setWindowGroupSymbolDrafts((current) => ({
+        ...current,
+        [groupId]: nextSymbol
+      }));
+      setWindowGroupNotice(text.windowGroupsSymbolUpdated);
+      return nextState;
+    });
+  };
+
+  const handleAssignWindowGroup = (
+    windowKey: DesktopManagedWindowKey,
+    groupId: string
+  ) => {
+    if (!bridge) {
+      return;
+    }
+
+    setWindowGroupNotice(null);
+
+    void runAction(`window-groups:assign:${windowKey}`, async () => {
+      const nextState = groupId
+        ? await bridge.assignWindowToGroup(windowKey, groupId)
+        : await bridge.unassignWindowFromGroup(windowKey);
+      setWindowGroupNotice(groupId ? text.windowGroupsAssigned : text.windowGroupsUnassigned);
+      return nextState;
+    });
+  };
+
+  const handleUnassignWindowGroup = (windowKey: DesktopManagedWindowKey) => {
+    if (!bridge) {
+      return;
+    }
+
+    setWindowGroupNotice(null);
+
+    void runAction(`window-groups:unassign:${windowKey}`, async () => {
+      const nextState = await bridge.unassignWindowFromGroup(windowKey);
+      setWindowGroupNotice(text.windowGroupsUnassigned);
       return nextState;
     });
   };
@@ -1373,6 +2002,68 @@ export function DesktopControlCenter() {
       unsubscribe();
     };
   }, [bridge, setBackendWsUrl, setInterfaceLanguage, storageHydrated]);
+
+  useEffect(() => {
+    if (!bridge) {
+      return;
+    }
+
+    let cancelled = false;
+    setSavedLayoutsLoading(true);
+
+    bridge
+      .listLayouts()
+      .then((layouts) => {
+        if (!cancelled) {
+          setSavedLayouts(layouts);
+        }
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setError(getErrorMessage(loadError, interfaceLanguageRef.current));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSavedLayoutsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge]);
+
+  useEffect(() => {
+    if (!bridge) {
+      return;
+    }
+
+    let cancelled = false;
+    setMonitorProfilesLoading(true);
+
+    bridge
+      .listMonitorProfiles()
+      .then((profiles) => {
+        if (!cancelled) {
+          setMonitorProfiles(profiles);
+        }
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setError(getErrorMessage(loadError, interfaceLanguageRef.current));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMonitorProfilesLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge]);
 
   useEffect(() => {
     if (!bridge) {
@@ -1894,15 +2585,607 @@ export function DesktopControlCenter() {
             />
           </div>
 
+          <section className="mt-6 rounded-[24px] border border-[#8ae5ff]/20 bg-[#0d1620]/90 p-5 shadow-lg shadow-black/20">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-3xl">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-[#8ae5ff]">
+                  Beta workflow
+                </div>
+                <h2 className="mt-2 text-xl font-semibold text-white">
+                  {defaultScenarioWorkspace.label}
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Start from the simplified beta trader chain first. Advanced scenarios, saved
+                  layouts, window groups and legacy tools stay available below.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {betaWorkflowWindowLabels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full border border-[#8ae5ff]/20 bg-[#8ae5ff]/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[#8ae5ff]"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex w-full flex-wrap items-end gap-3 xl:w-auto">
+                <label className="flex items-center gap-3 rounded-full border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
+                  <span className="uppercase tracking-[0.16em] text-slate-500">
+                    {text.scenarioWorkspacesModeLabel}
+                  </span>
+                  <select
+                    value={scenarioWorkspaceOpenMode}
+                    onChange={(event) =>
+                      setScenarioWorkspaceOpenMode(event.target.value as DesktopWorkspaceOpenMode)
+                    }
+                    disabled={scenarioWorkspaceBusy}
+                    className="rounded-full border border-white/10 bg-[#0d1620] px-3 py-1 text-xs text-white outline-none"
+                  >
+                    {scenarioWorkspaceOpenModes.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {mode === "merge"
+                          ? text.scenarioWorkspacesModeMerge
+                          : text.scenarioWorkspacesModeOpenMissingOnly}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenScenarioWorkspace(defaultScenarioWorkspaceId)}
+                  disabled={!bridge || scenarioWorkspaceBusy}
+                  className="rounded-full border border-[#8ae5ff]/30 bg-[#8ae5ff]/10 px-4 py-2 text-sm font-medium text-[#8ae5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Open desktop workflow
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleWorkspacePresetSelect(defaultWorkspacePresetId)}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Apply beta preset
+                </button>
+              </div>
+            </div>
+
+            {scenarioWorkspaceNotice ? (
+              <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                {scenarioWorkspaceNotice}
+              </div>
+            ) : null}
+          </section>
+
+          <div className="mt-8 flex items-center gap-3">
+            <div className="h-px flex-1 bg-white/10" />
+            <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">
+              Advanced
+            </div>
+            <div className="h-px flex-1 bg-white/10" />
+          </div>
+
+          <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0d1620]/85 p-5 shadow-lg shadow-black/20">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-3xl">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-[#8ae5ff]">
+                  {text.savedLayoutsEyebrow}
+                </div>
+                <h2 className="mt-2 text-xl font-semibold text-white">{text.savedLayoutsTitle}</h2>
+                <p className="mt-2 text-sm text-slate-400">{text.savedLayoutsDescription}</p>
+              </div>
+
+              <div className="flex w-full flex-wrap items-end gap-3 xl:w-auto">
+                <label className="block min-w-[280px] flex-1 text-sm text-slate-300 xl:flex-none">
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    {text.savedLayoutsNameLabel}
+                  </span>
+                  <input
+                    type="text"
+                    value={savedLayoutNameDraft}
+                    onChange={(event) => setSavedLayoutNameDraft(event.target.value)}
+                    placeholder={text.savedLayoutsNamePlaceholder}
+                    disabled={savedLayoutsBusy}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleSaveCurrentLayout}
+                  disabled={savedLayoutsBusy || !normalizedSavedLayoutName}
+                  className="rounded-full border border-[#8ae5ff]/30 bg-[#8ae5ff]/10 px-4 py-2 text-sm font-medium text-[#8ae5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {text.savedLayoutsSaveCurrent}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => importLayoutInputRef.current?.click()}
+                  disabled={savedLayoutsBusy}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {text.savedLayoutsImport}
+                </button>
+
+                <input
+                  ref={importLayoutInputRef}
+                  type="file"
+                  accept="application/json"
+                  onChange={handleImportSavedLayout}
+                  className="hidden"
+                />
+              </div>
+            </div>
+
+            {savedLayoutNotice ? (
+              <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                {savedLayoutNotice}
+              </div>
+            ) : null}
+
+            <div className="mt-5 space-y-3">
+              {savedLayoutsLoading ? (
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-400">
+                  {text.savedLayoutsLoading}
+                </div>
+              ) : savedLayouts.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-500">
+                  {text.savedLayoutsEmpty}
+                </div>
+              ) : (
+                savedLayouts.map((layout) => (
+                  <div
+                    key={layout.name}
+                    className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-4"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-white">{layout.name}</div>
+                      <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
+                        <span>
+                          {text.savedLayoutsUpdated}:{" "}
+                          {formatSavedLayoutTimestamp(layout.updatedAt, interfaceLanguage)}
+                        </span>
+                        <span>
+                          {text.savedLayoutsOpenWindows}: {layout.openWindowCount}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleLoadSavedLayout(layout.name)}
+                        disabled={savedLayoutsBusy}
+                        className="rounded-full border border-[#8ae5ff]/30 bg-[#8ae5ff]/10 px-3.5 py-2 text-sm font-medium text-[#8ae5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {text.savedLayoutsLoad}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExportSavedLayout(layout.name)}
+                        disabled={savedLayoutsBusy}
+                        className="rounded-full border border-white/10 bg-white/5 px-3.5 py-2 text-sm font-medium text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {text.savedLayoutsExport}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSavedLayout(layout.name)}
+                        disabled={savedLayoutsBusy}
+                        className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3.5 py-2 text-sm font-medium text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {text.savedLayoutsDelete}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0d1620]/85 p-5 shadow-lg shadow-black/20">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-3xl">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-[#8ae5ff]">
+                  {text.monitorProfilesEyebrow}
+                </div>
+                <h2 className="mt-2 text-xl font-semibold text-white">
+                  {text.monitorProfilesTitle}
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  {text.monitorProfilesDescription}
+                </p>
+              </div>
+
+              <div className="flex w-full flex-wrap items-end gap-3 xl:w-auto">
+                <label className="block min-w-[280px] flex-1 text-sm text-slate-300 xl:flex-none">
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    {text.monitorProfilesNameLabel}
+                  </span>
+                  <input
+                    type="text"
+                    value={monitorProfileNameDraft}
+                    onChange={(event) => setMonitorProfileNameDraft(event.target.value)}
+                    placeholder={text.monitorProfilesNamePlaceholder}
+                    disabled={monitorProfilesBusy}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleSaveMonitorProfile}
+                  disabled={monitorProfilesBusy || !normalizedMonitorProfileName}
+                  className="rounded-full border border-[#8ae5ff]/30 bg-[#8ae5ff]/10 px-4 py-2 text-sm font-medium text-[#8ae5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {text.monitorProfilesSave}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-5">
+              {monitorProfileRoles.map((role) => (
+                <label
+                  key={role}
+                  className="block rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-slate-300"
+                >
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    {getMonitorRoleLabel(role, interfaceLanguage)}
+                  </span>
+                  <select
+                    value={monitorProfileRolesDraft[role]?.displayId ?? ""}
+                    onChange={(event) => {
+                      const nextDisplayId = event.target.value ? Number(event.target.value) : null;
+                      handleMonitorRoleChange(role, nextDisplayId);
+                    }}
+                    disabled={monitorProfilesBusy}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <option value="">{text.windowsAutoCurrentScreen}</option>
+                    {shellState?.displays.map((display) => (
+                      <option key={display.id} value={display.id}>
+                        {display.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                {text.monitorProfilesCurrentDisplays}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+                {shellState && shellState.displays.length > 0 ? (
+                  shellState.displays.map((display) => (
+                    <span
+                      key={display.id}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1"
+                    >
+                      {display.label}: {display.workArea.width}x{display.workArea.height}
+                    </span>
+                  ))
+                ) : (
+                  <span>{text.loadingScreens}</span>
+                )}
+              </div>
+            </div>
+
+            {monitorProfileNotice ? (
+              <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                {monitorProfileNotice}
+              </div>
+            ) : null}
+
+            <div className="mt-5 space-y-3">
+              {monitorProfilesLoading ? (
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-400">
+                  {text.monitorProfilesLoading}
+                </div>
+              ) : monitorProfiles.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-500">
+                  {text.monitorProfilesEmpty}
+                </div>
+              ) : (
+                monitorProfiles.map((profile) => {
+                  const profileDisplays =
+                    shellState && shellState.displays.length > 0
+                      ? shellState.displays
+                      : profile.capturedDisplays;
+
+                  return (
+                    <div
+                      key={profile.id}
+                      className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-4"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-white">{profile.name}</div>
+                        <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
+                          <span>
+                            {text.monitorProfilesUpdated}:{" "}
+                            {formatSavedLayoutTimestamp(profile.updatedAt, interfaceLanguage)}
+                          </span>
+                          <span>
+                            {text.monitorProfilesCapturedDisplays}:{" "}
+                            {profile.capturedDisplays.length}
+                          </span>
+                        </div>
+                        <div className="mt-2 max-w-4xl text-xs leading-5 text-slate-400">
+                          {formatMonitorProfileRoles(
+                            profile,
+                            profileDisplays,
+                            interfaceLanguage
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyMonitorProfile(profile.id)}
+                        disabled={monitorProfilesBusy}
+                        className="rounded-full border border-[#8ae5ff]/30 bg-[#8ae5ff]/10 px-3.5 py-2 text-sm font-medium text-[#8ae5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {text.monitorProfilesApply}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
           <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0d1620]/85 p-5 shadow-lg shadow-black/20">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.2em] text-[#8ae5ff]">
-                  Doctrine workflow
+                  {text.scenarioWorkspacesEyebrow}
                 </div>
-                <h2 className="mt-2 text-xl font-semibold text-white">Workflow navigation</h2>
+                <h2 className="mt-2 text-xl font-semibold text-white">
+                  {text.scenarioWorkspacesTitle}
+                </h2>
                 <p className="mt-2 max-w-2xl text-sm text-slate-400">
-                  Switch visible dashboard blocks around Signal, Decision, Execution, Review and Knowledge.
+                  {text.scenarioWorkspacesDescription}
+                </p>
+              </div>
+              <label className="flex items-center gap-3 rounded-full border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
+                <span className="uppercase tracking-[0.16em] text-slate-500">
+                  {text.scenarioWorkspacesModeLabel}
+                </span>
+                <select
+                  value={scenarioWorkspaceOpenMode}
+                  onChange={(event) =>
+                    setScenarioWorkspaceOpenMode(event.target.value as DesktopWorkspaceOpenMode)
+                  }
+                  disabled={scenarioWorkspaceBusy}
+                  className="rounded-full border border-white/10 bg-[#0d1620] px-3 py-1 text-xs text-white outline-none"
+                >
+                  {scenarioWorkspaceOpenModes.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {mode === "merge"
+                        ? text.scenarioWorkspacesModeMerge
+                        : text.scenarioWorkspacesModeOpenMissingOnly}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {secondaryScenarioWorkspaceIds.map((workspaceId) => {
+                const workspace = scenarioWorkspaces[workspaceId];
+
+                return (
+                  <div
+                    key={workspaceId}
+                    className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left"
+                  >
+                    <div className="text-sm font-semibold text-white">{workspace.label}</div>
+                    <div className="mt-1 text-xs leading-5 text-slate-500">
+                      {workspace.description}
+                    </div>
+                    <div className="mt-3 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                      {workspace.windows.length} {text.scenarioWorkspacesWindowCount}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenScenarioWorkspace(workspaceId)}
+                      disabled={!bridge || scenarioWorkspaceBusy}
+                      className="mt-4 rounded-full border border-[#8ae5ff]/30 bg-[#8ae5ff]/10 px-4 py-2 text-sm font-medium text-[#8ae5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {text.scenarioWorkspacesOpen}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0d1620]/85 p-5 shadow-lg shadow-black/20">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-3xl">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-[#8ae5ff]">
+                  {text.windowGroupsEyebrow}
+                </div>
+                <h2 className="mt-2 text-xl font-semibold text-white">
+                  {text.windowGroupsTitle}
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  {text.windowGroupsDescription}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(220px,1.2fr)_minmax(180px,0.9fr)_160px_170px_auto]">
+              <label className="block text-sm text-slate-300">
+                <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  {text.windowGroupsLabel}
+                </span>
+                <input
+                  type="text"
+                  value={windowGroupLabelDraft}
+                  onChange={(event) => setWindowGroupLabelDraft(event.target.value)}
+                  placeholder={text.windowGroupsLabelPlaceholder}
+                  disabled={windowGroupsBusy}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+
+              <label className="block text-sm text-slate-300">
+                <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  {text.windowGroupsSymbol}
+                </span>
+                <input
+                  type="text"
+                  value={windowGroupSymbolDraft}
+                  onChange={(event) => setWindowGroupSymbolDraft(event.target.value)}
+                  placeholder={text.windowGroupsSymbolPlaceholder}
+                  disabled={windowGroupsBusy}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm font-mono uppercase text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+
+              <label className="block text-sm text-slate-300">
+                <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  {text.windowGroupsColor}
+                </span>
+                <select
+                  value={windowGroupColorDraft}
+                  onChange={(event) =>
+                    setWindowGroupColorDraft(event.target.value as DesktopWindowGroupColor)
+                  }
+                  disabled={windowGroupsBusy}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {windowGroupColors.map((color) => (
+                    <option key={color} value={color}>
+                      {getWindowGroupColorLabel(color, interfaceLanguage)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-sm text-slate-300">
+                <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  {text.windowGroupsContextMode}
+                </span>
+                <select
+                  value={windowGroupContextModeDraft}
+                  onChange={(event) =>
+                    setWindowGroupContextModeDraft(
+                      event.target.value as DesktopWindowGroupContextMode
+                    )
+                  }
+                  disabled={windowGroupsBusy}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {windowGroupContextModes.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {getWindowGroupContextModeLabel(mode, interfaceLanguage)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={handleCreateWindowGroup}
+                  disabled={windowGroupsBusy || !normalizedWindowGroupLabel}
+                  className="w-full rounded-full border border-[#8ae5ff]/30 bg-[#8ae5ff]/10 px-4 py-2 text-sm font-medium text-[#8ae5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {text.windowGroupsCreate}
+                </button>
+              </div>
+            </div>
+
+            {windowGroupNotice ? (
+              <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                {windowGroupNotice}
+              </div>
+            ) : null}
+
+            <div className="mt-5 space-y-3">
+              {!shellState ? (
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-400">
+                  {text.windowGroupsLoading}
+                </div>
+              ) : windowGroupList.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-500">
+                  {text.windowGroupsEmpty}
+                </div>
+              ) : (
+                windowGroupList.map((group) => (
+                  <div
+                    key={group.groupId}
+                    className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-4"
+                  >
+                    <div className="min-w-0">
+                      <DesktopWindowGroupBadge group={group} />
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+                        <span>
+                          {text.windowGroupsAssignedWindows}:{" "}
+                          {windowGroupAssignedCounts.get(group.groupId) ?? 0}
+                        </span>
+                        <span>
+                          {text.windowGroupsColor}:{" "}
+                          {getWindowGroupColorLabel(group.color, interfaceLanguage)}
+                        </span>
+                        <span>
+                          {text.windowGroupsContextMode}:{" "}
+                          {getWindowGroupContextModeLabel(group.contextMode, interfaceLanguage)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex min-w-[280px] flex-1 flex-wrap items-end justify-end gap-2">
+                      <label className="min-w-[180px] flex-1 text-sm text-slate-300">
+                        <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          {text.windowGroupsSymbol}
+                        </span>
+                        <input
+                          type="text"
+                          value={windowGroupSymbolDrafts[group.groupId] ?? ""}
+                          onChange={(event) =>
+                            setWindowGroupSymbolDrafts((current) => ({
+                              ...current,
+                              [group.groupId]: event.target.value
+                            }))
+                          }
+                          placeholder={text.windowGroupsSymbolPlaceholder}
+                          disabled={windowGroupsBusy}
+                          className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm font-mono uppercase text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateWindowGroupSymbol(group.groupId)}
+                        disabled={windowGroupsBusy}
+                        className="rounded-full border border-white/10 bg-white/5 px-3.5 py-2 text-sm font-medium text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {text.windowGroupsUpdateSymbol}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0d1620]/85 p-5 shadow-lg shadow-black/20">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.2em] text-[#8ae5ff]">
+                  {text.legacyWorkspacePresetsEyebrow}
+                </div>
+                <h2 className="mt-2 text-xl font-semibold text-white">
+                  {text.legacyWorkspacePresetsTitle}
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm text-slate-400">
+                  {text.legacyWorkspacePresetsDescription}
                 </p>
               </div>
               {activeWorkspacePresetId ? (
@@ -1911,7 +3194,7 @@ export function DesktopControlCenter() {
                 </div>
               ) : (
                 <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
-                  Custom
+                  {text.legacyWorkspacePresetsCustom}
                 </div>
               )}
             </div>
@@ -1938,31 +3221,11 @@ export function DesktopControlCenter() {
                       {preset.description}
                     </div>
                     <div className="mt-3 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                      {preset.visibleSections.length} workflow blocks
+                      {preset.visibleSections.length} {text.legacyWorkspacePresetsBlocks}
                     </div>
                   </button>
                 );
               })}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-              <div>
-                <div className="text-sm font-medium text-white">Workflow windows</div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Opens {activeWorkspaceWindowSections.length} included windows for the active preset.
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Opens/focuses included windows only; does not close others.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleOpenWorkspaceWindows}
-                disabled={!activeWorkspacePresetId || busyToken === "workspace-windows"}
-                className="rounded-full border border-[#8ae5ff]/30 bg-[#8ae5ff]/10 px-4 py-2 text-sm font-medium text-[#8ae5ff] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Open {activeWorkspaceWindowSections.length} workspace windows
-              </button>
             </div>
           </section>
 
@@ -2532,6 +3795,8 @@ export function DesktopControlCenter() {
 
               const busyPrefix = `${definition.key}:`;
               const isBusy = busyToken?.startsWith(busyPrefix) ?? false;
+              const assignedGroupId = windowGroupAssignments[definition.key] ?? null;
+              const assignedGroup = assignedGroupId ? windowGroupsById[assignedGroupId] ?? null : null;
 
               return (
                 <section
@@ -2551,6 +3816,7 @@ export function DesktopControlCenter() {
                         >
                           {windowState.open ? text.windowsOpen : text.windowsClosed}
                         </span>
+                        <DesktopWindowGroupBadge group={assignedGroup} compact />
                       </div>
                       <p className="mt-2 max-w-xl text-sm text-slate-400">{definition.detail}</p>
                       <div className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -2629,6 +3895,39 @@ export function DesktopControlCenter() {
                     </div>
 
                     <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                      <label className="block text-sm text-slate-300">
+                        <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          {text.windowsGroupLabel}
+                        </span>
+                        <select
+                          value={assignedGroupId ?? ""}
+                          onChange={(event) =>
+                            handleAssignWindowGroup(definition.key, event.target.value)
+                          }
+                          disabled={isBusy || windowGroupsBusy || windowGroupList.length === 0}
+                          className="mt-2 w-full rounded-xl border border-white/10 bg-[#081018] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8ae5ff]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <option value="">{text.windowsGroupNone}</option>
+                          {windowGroupList.map((group) => (
+                            <option key={group.groupId} value={group.groupId}>
+                              {group.label}
+                              {group.symbol ? ` | ${group.symbol}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {assignedGroupId ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUnassignWindowGroup(definition.key)}
+                          disabled={isBusy || windowGroupsBusy}
+                          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {text.windowsGroupClear}
+                        </button>
+                      ) : null}
+
                       <label className="block text-sm text-slate-300">
                         <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                           {text.windowsTargetScreen}

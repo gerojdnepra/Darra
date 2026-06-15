@@ -88,6 +88,7 @@ import {
   cockpitDemoRow,
   cockpitDemoSymbol
 } from "@/lib/cockpit-demo";
+import { applyOrderPreflightInvalidation } from "@/lib/order-preflight-state";
 import {
   createRuntimeSyncSourceId,
   runtimeSyncChannelName,
@@ -769,6 +770,13 @@ const mapUnifiedSignalToAlert = (
     rankScore: signal.rankScore ?? linkedAlert?.rankScore,
     suppress: signal.suppress ?? linkedAlert?.suppress,
     suppressReason: signal.suppressReason ?? linkedAlert?.suppressReason,
+    confidenceScore: signal.confidenceScore ?? linkedAlert?.confidenceScore,
+    signalStabilityScore: signal.signalStabilityScore ?? linkedAlert?.signalStabilityScore,
+    signalVolatilityClass: signal.signalVolatilityClass ?? linkedAlert?.signalVolatilityClass,
+    signalDecayRate: signal.signalDecayRate ?? linkedAlert?.signalDecayRate,
+    marketRegime: signal.marketRegime ?? linkedAlert?.marketRegime,
+    decisionQualityScore: signal.decisionQualityScore ?? linkedAlert?.decisionQualityScore,
+    decisionStrength: signal.decisionStrength ?? linkedAlert?.decisionStrength,
     ttlSec: signal.ttlSec ?? linkedAlert?.ttlSec,
     tags: signal.tags ?? linkedAlert?.tags,
     liveVisibility: signal.liveVisibility ?? linkedAlert?.liveVisibility,
@@ -835,6 +843,10 @@ const mapAlertToDecisionInboxItem = (alert: ScreenerAlert): DecisionInboxItem =>
         : typeof alert.alertRankScore === "number"
           ? alert.alertRankScore
           : null,
+    signalConfidence: alert.confidenceScore ?? null,
+    signalStability: alert.signalStabilityScore ?? null,
+    decisionQualityScore: alert.decisionQualityScore ?? null,
+    marketRegime: alert.marketRegime ?? null,
     notionalUsd: alert.notionalUsd,
     liveVisibility: alert.liveVisibility,
     noiseClass: alert.noiseClass,
@@ -881,6 +893,10 @@ const mapUnifiedSignalToDecisionInboxItem = (
           : typeof linkedAlert?.alertRankScore === "number"
             ? linkedAlert.alertRankScore
             : null,
+    signalConfidence: signal.confidenceScore ?? linkedAlert?.confidenceScore ?? null,
+    signalStability: signal.signalStabilityScore ?? linkedAlert?.signalStabilityScore ?? null,
+    decisionQualityScore: signal.decisionQualityScore ?? linkedAlert?.decisionQualityScore ?? null,
+    marketRegime: signal.marketRegime ?? linkedAlert?.marketRegime ?? null,
     notionalUsd: linkedAlert?.notionalUsd ?? null,
     liveVisibility: signal.liveVisibility ?? linkedAlert?.liveVisibility,
     noiseClass: signal.noiseClass ?? linkedAlert?.noiseClass,
@@ -1219,7 +1235,7 @@ interface PendingOrderConfirmation {
 }
 
 interface PendingTicketDecisionContextRequest {
-  id: string;
+  symbol: string;
   decision: TradeDecisionAction;
   confirmation: PendingOrderConfirmation | null;
 }
@@ -1390,14 +1406,6 @@ const createOrderIntentId = (): string => {
   }
 
   return `intent-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
-
-const createTradeDecisionContextId = (): string => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `decision-${crypto.randomUUID()}`;
-  }
-
-  return `decision-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 };
 
 const tagClass = (tag: string): string => {
@@ -1642,6 +1650,7 @@ const commandCenterToneClasses = (tone: CommandCenterTone): string => {
 };
 
 type DecisionDashboardSection =
+  | "screener"
   | "alerts"
   | "account"
   | "activeTrades"
@@ -1794,27 +1803,27 @@ const sectionLabels: Array<{ id: CollapsibleSectionId; label: string }> = [
   { id: "varPanel", label: "VaR" },
   { id: "fundingBasis", label: "Funding" },
   { id: "marketFlow", label: "Market Flow" },
-  { id: "chartPanel", label: "Signal Context" },
+  { id: "chartPanel", label: "Context" },
   { id: "decisionStack", label: "Decision Pipeline" },
   { id: "symbolDetailRail", label: "Why This Matters Now" },
   { id: "marketStory", label: "Signal Story" },
-  { id: "signalIntelligence", label: "Signal Intelligence" },
-  { id: "metaRegimeGovernor", label: "Meta Regime Governor" },
+  { id: "signalIntelligence", label: "Advanced Signal Intelligence" },
+  { id: "metaRegimeGovernor", label: "Advanced Meta Regime Governor" },
   { id: "positionRiskOrchestrator", label: "Position Risk Orchestrator" },
-  { id: "regimeMemory", label: "Regime Memory" },
-  { id: "regimePrediction", label: "Regime Prediction" },
-  { id: "regimeFeedbackCalibration", label: "Regime Feedback Calibration" },
+  { id: "regimeMemory", label: "Advanced Regime Memory" },
+  { id: "regimePrediction", label: "Advanced Regime Prediction" },
+  { id: "regimeFeedbackCalibration", label: "Advanced Regime Feedback Calibration" },
   { id: "pnlAttribution", label: "PnL Attribution" },
   { id: "signalStatistics", label: "Review Statistics" },
-  { id: "learningCenter", label: "Research" },
-  { id: "tradeJournal", label: "Decision Review" },
+  { id: "learningCenter", label: "Experimental Research" },
+  { id: "tradeJournal", label: "Review" },
   { id: "knowledgeWorkspace", label: "Knowledge" },
   { id: "watchlist", label: "Watchlist" },
   { id: "volumeMilestones", label: "100M Volume" },
   { id: "volumeThresholdMilestones", label: "1-100M Volume" },
-  { id: "alerts", label: "Decision Inbox" },
-  { id: "frameTelemetry", label: "Frame Telemetry" },
-  { id: "renderTelemetry", label: "Render Telemetry" },
+  { id: "alerts", label: "Decision" },
+  { id: "frameTelemetry", label: "Experimental Frame Telemetry" },
+  { id: "renderTelemetry", label: "Experimental Render Telemetry" },
   { id: "health", label: "Feed Health" }
 ];
 
@@ -2088,6 +2097,10 @@ type DecisionInboxItem = {
   severity?: string | null;
   priority?: string | null;
   rankScore?: number | null;
+  signalConfidence?: number | null;
+  signalStability?: number | null;
+  decisionQualityScore?: number | null;
+  marketRegime?: string | null;
   notionalUsd?: number | null;
   liveVisibility?: UnifiedSignalEvent["liveVisibility"] | ScreenerAlert["liveVisibility"];
   noiseClass?: UnifiedSignalEvent["noiseClass"] | ScreenerAlert["noiseClass"];
@@ -2141,6 +2154,7 @@ export function ScalpStationApp({
     search,
     liveSafetyState,
     latestTradeDecisionContext,
+    latestDecisionContextResponse,
     pendingTradeDecisionContextId,
     tradeDecisionContextError,
     learningMode
@@ -2172,6 +2186,7 @@ export function ScalpStationApp({
       search: state.search,
       liveSafetyState: state.liveSafetyState,
       latestTradeDecisionContext: state.latestTradeDecisionContext,
+      latestDecisionContextResponse: state.latestDecisionContextResponse,
       pendingTradeDecisionContextId: state.pendingTradeDecisionContextId,
       tradeDecisionContextError: state.tradeDecisionContextError,
       learningMode: state.uiPreferences.learningMode
@@ -2281,6 +2296,7 @@ export function ScalpStationApp({
   const orderEntryPreflightTimerRef = useRef<number | null>(null);
   const orderEntryPreflightRequestRef = useRef<string | null>(null);
   const orderEntryPreflightTicketKeyRef = useRef<string | null>(null);
+  const latestActiveOrderPreflightIdsRef = useRef<string[]>([]);
   const signalStatisticsRequestTimerRef = useRef<number | null>(null);
   const journalRequestTimerRef = useRef<number | null>(null);
   const learningRequestTimerRef = useRef<number | null>(null);
@@ -3016,6 +3032,12 @@ export function ScalpStationApp({
     !orderEntryValidation.valid ||
     !matchingFreshAllowOrderEntryPreflight;
   useEffect(() => {
+    latestActiveOrderPreflightIdsRef.current = orderEntryPreflight?.response?.preflightId
+      ? [orderEntryPreflight.response.preflightId]
+      : [];
+  }, [orderEntryPreflight]);
+
+  useEffect(() => {
     if (currentOrderEntryPreflight?.loading === true || orderEntryPreflightExpiresAt === null) {
       return;
     }
@@ -3031,6 +3053,32 @@ export function ScalpStationApp({
 
     return () => window.clearTimeout(staleTimer);
   }, [currentOrderEntryPreflight?.loading, orderEntryPreflightExpiresAt]);
+  useEffect(() => {
+    if (freshOrderEntryPreflight || !currentOrderEntryPreflight?.response?.preflightId) {
+      return;
+    }
+
+    const expiredPreflightId = currentOrderEntryPreflight.response.preflightId;
+    const pendingMatches = pendingOrderConfirmation?.payload.preflightId === expiredPreflightId;
+    const guardMatches = ticketDecisionContextGuard?.payload.preflightId === expiredPreflightId;
+
+    if (!pendingMatches && !guardMatches) {
+      return;
+    }
+
+    if (pendingMatches) {
+      setPendingOrderConfirmation(null);
+    }
+    if (guardMatches) {
+      setTicketDecisionContextGuard(null);
+    }
+    setOrderEntryError("Preflight expired. Request a new confirmation before submitting.");
+  }, [
+    currentOrderEntryPreflight?.response?.preflightId,
+    freshOrderEntryPreflight,
+    pendingOrderConfirmation,
+    ticketDecisionContextGuard
+  ]);
   const orderEntrySafeToAdd = orderEntryPreflightSafeToAdd ?? orderEntrySizingResult?.safeToAdd ?? null;
   const orderEntrySafeToAddRefreshing =
     currentOrderEntryPreflight?.loading === true || positionSizingLoading;
@@ -3401,8 +3449,28 @@ export function ScalpStationApp({
   const accountStatusMessage =
     accountStream?.message ?? "account stream disabled: connect Binance API keys";
   const accountStatusError = accountStream?.error ?? null;
-  const visibleSections = uiPreferences.visibleSections;
-  const collapsedSections = uiPreferences.collapsedSections;
+  const persistedVisibleSections = uiPreferences.visibleSections;
+  const visibleSections = useMemo(
+    () =>
+      desktopSection
+        ? ({
+            ...persistedVisibleSections,
+            [desktopSection]: true
+          } as SectionVisibilityState)
+        : persistedVisibleSections,
+    [desktopSection, persistedVisibleSections]
+  );
+  const persistedCollapsedSections = uiPreferences.collapsedSections;
+  const collapsedSections = useMemo(
+    () =>
+      desktopSection
+        ? ({
+            ...persistedCollapsedSections,
+            [desktopSection]: false
+          } as CollapsedSectionsState)
+        : persistedCollapsedSections,
+    [desktopSection, persistedCollapsedSections]
+  );
   const isPanelDataActive = (section: CollapsibleSectionId): boolean =>
     desktopSection ? desktopSection === section : Boolean(visibleSections[section] && !collapsedSections[section]);
   const dashboardPanelOrder = useMemo(
@@ -4023,6 +4091,35 @@ export function ScalpStationApp({
     return true;
   };
 
+  const invalidateTrackedOrderPreflight = (payload: {
+    preflightId: string;
+    reason: string;
+  }): void => {
+    const trackedPreflightId = orderEntryPreflight?.response?.preflightId ?? null;
+    const pendingConfirmationMatches =
+      pendingOrderConfirmation?.payload.preflightId === payload.preflightId;
+    const pendingDecisionGuardMatches =
+      ticketDecisionContextGuard?.payload.preflightId === payload.preflightId;
+    const trackedMatches = trackedPreflightId === payload.preflightId;
+
+    setOrderEntryPreflight((previous) =>
+      applyOrderPreflightInvalidation(previous, {
+        preflightId: payload.preflightId,
+        status: "INVALIDATED",
+        reason: payload.reason,
+        occurredAt: Date.now()
+      }).nextState
+    );
+
+    if (!trackedMatches && !pendingConfirmationMatches && !pendingDecisionGuardMatches) {
+      return;
+    }
+
+    setPendingOrderConfirmation(null);
+    setTicketDecisionContextGuard(null);
+    setOrderEntryError(payload.reason);
+  };
+
   const requestTicketDecisionContext = (decision: TradeDecisionAction): void => {
     if (!ticketDecisionContextGuard) {
       return;
@@ -4037,44 +4134,24 @@ export function ScalpStationApp({
       return;
     }
 
-    const contextId = createTradeDecisionContextId();
     const message: CreateTradeDecisionContextMessage = {
       type: "create_trade_decision_context",
       payload: {
-        id: contextId,
-        ...(ticketDecisionContextGuard.payload.unifiedSignalId
-          ? { unifiedSignalId: ticketDecisionContextGuard.payload.unifiedSignalId }
-          : {}),
         symbol,
-        decision,
-        decisionReason: `${decision} from Execution Ticket before ${ticketDecisionContextGuard.payload.action}.`,
-        preflightId: ticketDecisionContextGuard.payload.preflightId,
-        preflightNonce: ticketDecisionContextGuard.payload.preflightNonce,
-        source: "trading_ticket",
-        status: "committed",
-        createdAt: Date.now(),
-        payload: {
-          tradingTicket: {
-            intentId: ticketDecisionContextGuard.payload.intentId,
-            action: ticketDecisionContextGuard.payload.action,
-            side: ticketDecisionContextGuard.payload.side ?? null,
-            orderType: ticketDecisionContextGuard.payload.orderType ?? null,
-            paperMode: ticketDecisionContextGuard.payload.paperMode ?? null,
-            sourceWindowId: ticketDecisionContextGuard.payload.sourceWindowId ?? null
-          },
-          marketRegime: frame?.overview.dominantRegime ?? null
-        }
+        intent: decision,
+        notes: `${decision} from Execution Ticket before ${ticketDecisionContextGuard.payload.action}.`,
+        preflightId: ticketDecisionContextGuard.payload.preflightId
       }
     };
 
     clearTradeDecisionContextError();
     setTicketDecisionContextNotice(null);
     setPendingTicketDecisionContextRequest({
-      id: contextId,
+      symbol,
       decision,
       confirmation: decision === "ENTER" ? ticketDecisionContextGuard : null
     });
-    setPendingTradeDecisionContextId(contextId);
+    setPendingTradeDecisionContextId(ticketDecisionContextGuard.payload.intentId);
 
     const sent = sendSocketMessage(message);
     if (!sent) {
@@ -4085,10 +4162,28 @@ export function ScalpStationApp({
   };
 
   useEffect(() => {
+    const responseContext = latestDecisionContextResponse?.decisionContext ?? null;
     if (
       !pendingTicketDecisionContextRequest ||
-      latestTradeDecisionContext?.id !== pendingTicketDecisionContextRequest.id
+      !latestDecisionContextResponse ||
+      (responseContext &&
+        responseContext.symbol.trim().toUpperCase() !== pendingTicketDecisionContextRequest.symbol)
     ) {
+      return;
+    }
+
+    if (latestDecisionContextResponse.status === "REJECTED") {
+      setOrderEntryError(
+        latestDecisionContextResponse.validationErrors[0] ??
+          latestDecisionContextResponse.reason ??
+          "Decision context request rejected."
+      );
+      setPendingTicketDecisionContextRequest(null);
+      setPendingTradeDecisionContextId(null);
+      return;
+    }
+
+    if (!responseContext) {
       return;
     }
 
@@ -4098,12 +4193,14 @@ export function ScalpStationApp({
 
     if (
       pendingTicketDecisionContextRequest.decision === "ENTER" &&
-      pendingTicketDecisionContextRequest.confirmation
+      pendingTicketDecisionContextRequest.confirmation &&
+      latestDecisionContextResponse.status === "ACCEPTED" &&
+      responseContext.decision === "ENTER"
     ) {
       setPendingOrderConfirmation(
         bindOrderConfirmationToDecisionContext(
           pendingTicketDecisionContextRequest.confirmation,
-          latestTradeDecisionContext
+          responseContext
         )
       );
       setTicketDecisionContextGuard(null);
@@ -4114,23 +4211,18 @@ export function ScalpStationApp({
     setPendingOrderConfirmation(null);
     setTicketDecisionContextGuard(null);
     setTicketDecisionContextNotice(
-      `${pendingTicketDecisionContextRequest.decision} decision saved. No order submitted.`
+      latestDecisionContextResponse.status === "FORCED_WAIT"
+        ? `System forced WAIT: ${latestDecisionContextResponse.reason ?? latestDecisionContextResponse.signalState}.`
+        : `${responseContext.decision} decision saved. No order submitted.`
     );
   }, [
-    latestTradeDecisionContext,
+    latestDecisionContextResponse,
     pendingTicketDecisionContextRequest,
     setPendingTradeDecisionContextId
   ]);
 
   useEffect(() => {
     if (!pendingTicketDecisionContextRequest || !tradeDecisionContextError) {
-      return;
-    }
-
-    if (
-      tradeDecisionContextError.id &&
-      tradeDecisionContextError.id !== pendingTicketDecisionContextRequest.id
-    ) {
       return;
     }
 
@@ -4471,6 +4563,7 @@ export function ScalpStationApp({
       createdAt: Date.now(),
       preflightId: orderEntryPreflightId,
       preflightNonce: orderEntryPreflightNonce,
+      decisionContextId: null,
       action: "PLACE_ORDER",
       symbol,
       side: orderEntrySide === "LONG" ? "BUY" : "SELL",
@@ -4516,6 +4609,24 @@ export function ScalpStationApp({
       return;
     }
 
+    const pendingPreflightId = pendingOrderConfirmation.payload.preflightId ?? null;
+    const pendingPreflightNonce = pendingOrderConfirmation.payload.preflightNonce ?? null;
+    if (pendingPreflightId || pendingPreflightNonce) {
+      const currentPreflightPayload = currentOrderEntryPreflight?.response ?? null;
+      const preflightStillFresh =
+        freshOrderEntryPreflight &&
+        currentPreflightPayload?.preflightId === pendingPreflightId &&
+        currentPreflightPayload.preflightNonce === pendingPreflightNonce &&
+        currentOrderEntryPreflight?.ticketKey === orderEntryPreflightTicketKey &&
+        orderEntryPreflightSafeToAdd?.status === "ALLOW";
+
+      if (!preflightStillFresh) {
+        setPendingOrderConfirmation(null);
+        setOrderEntryError("Preflight is stale. Request a new confirmation before submitting.");
+        return;
+      }
+    }
+
     if (cockpitDemoMode) {
       setOrderEntryError("Demo cockpit mode: order_intent is disabled for screenshots.");
       setPendingOrderConfirmation(null);
@@ -4558,6 +4669,7 @@ export function ScalpStationApp({
     const payload: OrderIntentMessage["payload"] = {
       intentId: createOrderIntentId(),
       createdAt: Date.now(),
+      decisionContextId: null,
       action: "CANCEL_ORDER",
       targetClientOrderId: targetOrderId,
       paperMode: true,
@@ -4587,6 +4699,7 @@ export function ScalpStationApp({
     const payload: OrderIntentMessage["payload"] = {
       intentId: createOrderIntentId(),
       createdAt: Date.now(),
+      decisionContextId: null,
       action: "CLOSE_PAPER_POSITION",
       paperPositionId: position.paperPositionId,
       symbol: position.symbol,
@@ -4880,11 +4993,35 @@ export function ScalpStationApp({
     },
     [
       collapsedSections.tradeJournal,
+      requestKnowledgeLayerData,
       requestDecisionReplay,
       setSectionVisibility,
       toggleSection
     ]
   );
+
+  const openKnowledgeWorkspace = useCallback((): boolean => {
+    setSectionVisibility("knowledgeWorkspace", true);
+    if (collapsedSections.knowledgeWorkspace) {
+      toggleSection("knowledgeWorkspace");
+    }
+
+    const sent = requestKnowledgeLayerData(true);
+
+    window.setTimeout(() => {
+      document.getElementById("knowledge-workspace")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }, 50);
+
+    return sent;
+  }, [
+    collapsedSections.knowledgeWorkspace,
+    requestKnowledgeLayerData,
+    setSectionVisibility,
+    toggleSection
+  ]);
 
   const openJournalCreateForm = useCallback((input: CreateJournalEntryInput | null = null) => {
     setSelectedJournalEntry(null);
@@ -6189,7 +6326,8 @@ export function ScalpStationApp({
           JSON.stringify({
             type: "hello",
             payload: {
-              capabilities: heavyClientFrameTransportCapabilities
+              capabilities: heavyClientFrameTransportCapabilities,
+              activeOrderPreflightIds: latestActiveOrderPreflightIdsRef.current
             }
           })
         );
@@ -6203,7 +6341,8 @@ export function ScalpStationApp({
           JSON.stringify({
             type: "request_snapshot",
             payload: {
-              reason: "initial_connect"
+              reason: "initial_connect",
+              activeOrderPreflightIds: latestActiveOrderPreflightIdsRef.current
             }
           })
         );
@@ -6271,6 +6410,12 @@ export function ScalpStationApp({
               receivedAt: Date.now()
             });
           }
+          if (message.type === "order_preflight_invalidated") {
+            invalidateTrackedOrderPreflight({
+              preflightId: message.payload.preflightId,
+              reason: message.payload.reason
+            });
+          }
           if (message.type === "journal_auto_event") {
             const eventText =
               message.payload.event === "created"
@@ -6278,7 +6423,7 @@ export function ScalpStationApp({
                 : message.payload.event === "closed"
                   ? "closed"
                   : "updated";
-            setJournalAutoNotice(`Auto Decision Review entry ${eventText} from Binance position.`);
+            setJournalAutoNotice(`Auto Review entry ${eventText} from Binance position.`);
             requestJournalData(latestJournalFiltersRef.current);
             requestKnowledgeLayerData(true);
           }
@@ -6754,32 +6899,12 @@ export function ScalpStationApp({
         return;
       }
 
-      const createdAt = Date.now();
-      const contextId = createTradeDecisionContextId();
       const message: CreateTradeDecisionContextMessage = {
         type: "create_trade_decision_context",
         payload: {
-          id: contextId,
-          ...(item.unifiedSignalId ? { unifiedSignalId: item.unifiedSignalId } : {}),
           symbol: item.symbol.trim().toUpperCase(),
-          decision,
-          decisionReason: `${decision} from Decision Inbox: ${item.reason}`,
-          source: "signal_inbox",
-          status: "committed",
-          createdAt,
-          payload: {
-            decisionInbox: {
-              id: item.id,
-              source: item.source,
-              sourceId: item.sourceId,
-              legacyAlertId: item.legacyAlertId,
-              title: item.title,
-              priority: item.priority,
-              rankScore: item.rankScore,
-              rawRef: item.rawRef ?? null
-            },
-            marketRegime: frame?.overview.dominantRegime ?? null
-          }
+          intent: decision,
+          notes: `${decision} from Decision Inbox: ${item.reason}`
         }
       };
 
@@ -7456,15 +7581,18 @@ export function ScalpStationApp({
         detail: latestActionableSignal
           ? latestActionableSignal.reason
           : decisionInboxSourceCount > 0
-            ? "Signals are present, but no actionable Decision Inbox item is selected."
+            ? "Signals are present, but no actionable Decision item is selected."
             : "Waiting for ranked unified signals.",
         facts: [
           { label: "Selected symbol", value: selectedSymbol ?? "none" },
           { label: "Latest", value: latestSignalLabel },
-          { label: "Source", value: signalSource }
+          { label: "Source", value: signalSource },
+          { label: "Confidence", value: latestActionableSignal?.signalConfidence?.toFixed(0) ?? "none" },
+          { label: "Stability", value: latestActionableSignal?.signalStability?.toFixed(2) ?? "none" },
+          { label: "Regime", value: latestActionableSignal?.marketRegime ?? "none" }
         ],
-        targetLabel: "Focus Decision Inbox",
-        targetSection: "alerts"
+        targetLabel: "Focus Signal",
+        targetSection: "screener"
       },
       {
         id: "decision",
@@ -7480,9 +7608,12 @@ export function ScalpStationApp({
         facts: [
           { label: "Context", value: latestTradeDecisionContext?.id ?? pendingTradeDecisionContextId ?? "none" },
           { label: "Action", value: decisionAction },
-          { label: "Symbol", value: latestTradeDecisionContext?.symbol ?? selectedSymbol ?? "none" }
+          { label: "Symbol", value: latestTradeDecisionContext?.symbol ?? selectedSymbol ?? "none" },
+          { label: "Quality", value: latestTradeDecisionContext?.decisionQualityScore?.toFixed(0) ?? "none" },
+          { label: "Strength", value: latestTradeDecisionContext?.decisionStrength ?? "none" },
+          { label: "Regime", value: latestTradeDecisionContext?.marketRegime ?? "none" }
         ],
-        targetLabel: "Focus Decision Inbox",
+        targetLabel: "Focus Decision",
         targetSection: "alerts"
       },
       {
@@ -7530,16 +7661,16 @@ export function ScalpStationApp({
         tone: reviewTone,
         headline: reviewId ?? "No review selected",
         detail: decisionReplay
-          ? "Decision Replay chain is loaded for review inspection."
+          ? "Replay chain is loaded for review inspection."
           : selectedJournalEntry
-            ? "Decision Review entry is selected."
-            : "Waiting for a closed position or selected Decision Review.",
+            ? "Review entry is selected."
+            : "Waiting for a closed position or selected Review.",
         facts: [
           { label: "Review", value: reviewId ?? "none" },
           { label: "Replay", value: decisionReplay ? "available" : decisionReplayLoading ? "loading" : "waiting" },
           { label: "Missing links", value: reviewMissingLinks !== null ? String(reviewMissingLinks) : "--" }
         ],
-        targetLabel: "Focus Decision Review",
+        targetLabel: "Focus Review",
         targetSection: "tradeJournal"
       },
       {
@@ -7567,7 +7698,7 @@ export function ScalpStationApp({
             value: formatReviewCompleteness(knowledgeLayer?.chainHealth.completenessPct)
           }
         ],
-        targetLabel: "Focus Trader Knowledge",
+        targetLabel: "Focus Knowledge",
         targetSection: "knowledgeWorkspace"
       }
     ];
@@ -7608,7 +7739,7 @@ export function ScalpStationApp({
           {
             label: "Symbol",
             value: selectedSymbol ?? "NONE",
-            detail: "Select a row or Decision Inbox item.",
+            detail: "Select a row or Decision item.",
             tone: selectedSymbol ? "accent" : "caution"
           },
           {
@@ -10890,7 +11021,7 @@ export function ScalpStationApp({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
-            Decision Inbox
+            Decision
           </h2>
           <span className="text-[11px] text-slate-500">
             {decisionInboxItems.length} / {decisionInboxSourceCount}{" "}
@@ -10973,6 +11104,12 @@ export function ScalpStationApp({
                     <span className="text-[10px] text-slate-500">
                       {copiedAlertId === item.id ? "focused" : "click to focus"}
                     </span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                    <span>conf {typeof item.signalConfidence === "number" ? item.signalConfidence.toFixed(0) : "--"}</span>
+                    <span>stab {typeof item.signalStability === "number" ? item.signalStability.toFixed(2) : "--"}</span>
+                    <span>quality {typeof item.decisionQualityScore === "number" ? item.decisionQualityScore.toFixed(0) : "--"}</span>
+                    <span>{item.marketRegime ?? "REGIME --"}</span>
                   </div>
                 </button>
                 <div className="mt-2 grid grid-cols-3 gap-1.5">
@@ -11066,7 +11203,7 @@ export function ScalpStationApp({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-            Decision Replay
+            Replay
           </h2>
           <p className="text-xs text-slate-500">
             review tool for reconstructing signal, decision, order, position and review
@@ -11158,7 +11295,7 @@ export function ScalpStationApp({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-            Decision Review
+            Review
           </h2>
           <p className="text-xs text-slate-500">
             post-trade review object, chain health and replay launch
@@ -11212,6 +11349,7 @@ export function ScalpStationApp({
           knowledgeLayerUpdatedAt={knowledgeLayerUpdatedAt}
           onOpenDecisionReview={openDecisionReview}
           onOpenDecisionReplay={openDecisionReplay}
+          onOpenKnowledge={openKnowledgeWorkspace}
           onRefreshKnowledgeLayer={() => requestKnowledgeLayerData(true)}
           onCopyText={copyTextToClipboard}
         />
@@ -11229,7 +11367,7 @@ export function ScalpStationApp({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-            Trader Knowledge
+            Knowledge
           </h2>
           <p className="text-xs text-slate-500">
             system memory: known links, unknown gaps and reconstruction coverage
@@ -11340,7 +11478,7 @@ export function ScalpStationApp({
         <div className="mx-auto max-w-[1800px] px-3 py-2">
           <div className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-4 py-2 text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-200">
-              Review Mode: decision review, decision replay, knowledge, statistics, learning
+              Review Mode: review, replay, knowledge, statistics, learning
             </p>
           </div>
         </div>
@@ -11935,11 +12073,11 @@ export function ScalpStationApp({
                                   </button>
                                   <button
                                     type="button"
-                                    title="Open Symbol Focus"
+                                    title="Open Advanced Symbol Focus"
                                     onClick={() => openSymbolFocus(row.symbol)}
                                     className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-accent transition hover:border-accent/60 hover:text-white"
                                   >
-                                    Open Symbol Focus
+                                    Advanced Symbol Focus
                                   </button>
                                 </div>
                               </div>
@@ -12607,7 +12745,7 @@ export function ScalpStationApp({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-                    Execution Workspace
+                    Execution
                   </h2>
                   <span className="text-xs text-slate-500">
                     ticket, preflight, Safe-To-Add and readiness; account stays connectivity/status
@@ -14519,14 +14657,14 @@ export function ScalpStationApp({
               <button
                 type="button"
                 onClick={() => openSymbolFocus(selectedSymbol)}
-                title="Open Symbol Focus workspace"
+                title="Open Advanced Symbol Focus workspace"
                 className={`rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.16em] transition ${
                   selectedSymbol
                     ? "border-accent/40 bg-accent/10 text-accent hover:border-accent/60 hover:text-white"
                     : "border-white/10 bg-white/5 text-slate-300 hover:border-accent/40 hover:text-accent"
                 }`}
               >
-                Focused: {selectedSymbol ?? "none / Select symbol"}
+                Advanced Focus: {selectedSymbol ?? "none / Select symbol"}
               </button>
               <button
                 onClick={() => setSoundEnabled(!uiPreferences.soundEnabled)}
@@ -14591,12 +14729,12 @@ export function ScalpStationApp({
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-accent">
-                      Decision Dashboard
+                      Workflow Dashboard
                     </span>
                     <ModuleInfoButton moduleId="decisionDashboard" />
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    Read-only chain state: Signal -&gt; Decision -&gt; Execution -&gt; Positions -&gt; Review -&gt; Knowledge.
+                    Read-only chain state: Signal -&gt; Decision -&gt; Context -&gt; Execution -&gt; Positions -&gt; Review -&gt; Knowledge.
                   </p>
                 </div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-400">
@@ -15011,6 +15149,7 @@ type TradeJournalPanelControlsProps = {
   knowledgeLayerUpdatedAt: number | null;
   onOpenDecisionReview: (payload: { reviewId?: string | null; positionLifecycleId?: string | null }) => boolean;
   onOpenDecisionReplay: (payload: { reviewId?: string | null; positionLifecycleId?: string | null }) => boolean;
+  onOpenKnowledge: () => boolean;
   onRefreshKnowledgeLayer: () => boolean;
   onCopyText: (text: string) => Promise<boolean>;
 };
@@ -15229,7 +15368,7 @@ const PaperPositionsTable = memo(function PaperPositionsTable({
                             disabled={!positionLifecycleId}
                             className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent transition hover:border-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Review
+                            Open Review
                           </button>
                         ) : null}
                         {onCopyText ? (
@@ -15330,9 +15469,12 @@ const PaperPositionsSection = memo(function PaperPositionsSection({
         <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
           Recent closed positions
         </div>
+        <div className="mt-1 text-xs text-slate-500">
+          Review is the default follow-up after a position closes.
+        </div>
         <PaperPositionsTable
           positions={recentPaperPositions}
-          emptyMessage="Close a paper trade to generate a decision review."
+          emptyMessage="Close a paper trade to generate a review."
           paperPositionLifecycleIds={paperPositionLifecycleIds}
           onOpenDecisionReview={onOpenDecisionReview}
           onCopyText={onCopyText}
@@ -15554,7 +15696,7 @@ const LearningCenterPanel = memo(function LearningCenterPanel({
         <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center text-sm text-slate-400">
           {loading
             ? "Loading learning report..."
-            : "No learning data yet. Outcomes and Decision Review PnL will fill this center automatically."}
+            : "No learning data yet. Outcomes and Review PnL will fill this center automatically."}
         </div>
       ) : (
         <>
@@ -15812,6 +15954,7 @@ function DecisionReviewWorkspace({
   knowledgeLayerError,
   knowledgeLayerUpdatedAt,
   onOpenDecisionReplay,
+  onOpenKnowledge,
   onRefreshKnowledgeLayer
 }: {
   selectedEntry: JournalEntryRecord | null;
@@ -15823,6 +15966,7 @@ function DecisionReviewWorkspace({
   knowledgeLayerError: string | null;
   knowledgeLayerUpdatedAt: number | null;
   onOpenDecisionReplay: (payload: { reviewId?: string | null; positionLifecycleId?: string | null }) => boolean;
+  onOpenKnowledge: () => boolean;
   onRefreshKnowledgeLayer: () => boolean;
 }) {
   const review = decisionReplay?.chain.decisionReview ?? null;
@@ -15846,21 +15990,40 @@ function DecisionReviewWorkspace({
     <section className="space-y-3 rounded-lg border border-accent/25 bg-accent/5 p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] uppercase tracking-[0.18em] text-accent">
-            Decision Review
-          </div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-accent">Review</div>
           <div className="mt-1 text-xs text-slate-500">
-            PositionLifecycle → DecisionReviewObject → DecisionReplay
+            Review first, replay when needed.
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onRefreshKnowledgeLayer}
-          disabled={knowledgeLayerLoading}
-          className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-300 transition hover:border-accent/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {knowledgeLayerLoading ? "Loading" : "Refresh"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!replayReviewId}
+            onClick={() => {
+              if (replayReviewId) {
+                onOpenDecisionReplay({ reviewId: replayReviewId });
+              }
+            }}
+            className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-300 transition hover:border-accent/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Open Replay
+          </button>
+          <button
+            type="button"
+            onClick={onOpenKnowledge}
+            className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-300 transition hover:border-accent/40 hover:text-white"
+          >
+            Open Knowledge
+          </button>
+          <button
+            type="button"
+            onClick={onRefreshKnowledgeLayer}
+            disabled={knowledgeLayerLoading}
+            className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-300 transition hover:border-accent/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {knowledgeLayerLoading ? "Loading" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       <div>
@@ -15942,25 +16105,26 @@ function DecisionReviewWorkspace({
       </div>
 
       <div>
-        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-          Open Decision Replay
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={!replayReviewId}
-            onClick={() => {
-              if (replayReviewId) {
-                onOpenDecisionReplay({ reviewId: replayReviewId });
-              }
-            }}
-            className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-accent transition hover:border-accent/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Open Decision Replay
-          </button>
-          <span className="max-w-full truncate font-mono text-[11px] text-slate-500">
-            {replayReviewId ?? "reviewId pending"}
-          </span>
+        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Follow-up</div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Replay</div>
+            <div className="mt-1">Open Replay when you need to inspect the chain in detail.</div>
+            <div className="mt-2 max-w-full truncate font-mono text-[11px] text-slate-500">
+              {replayReviewId ?? "reviewId pending"}
+            </div>
+          </div>
+          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Knowledge</div>
+            <div className="mt-1">
+              Open Knowledge for coverage, gaps and system-memory follow-up.
+            </div>
+            <div className="mt-2 text-[11px] text-slate-500">
+              {knowledgeLayerUpdatedAt
+                ? `snapshot ${formatClock(knowledgeLayerUpdatedAt)}`
+                : "snapshot pending"}
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -16023,7 +16187,7 @@ function KnowledgeWorkspacePanel({
             disabled={loading}
             className="w-full rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-accent transition hover:border-accent/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Loading" : "Load Trader Knowledge"}
+            {loading ? "Loading" : "Load Knowledge"}
           </button>
         </div>
       </div>
@@ -16036,9 +16200,9 @@ function KnowledgeWorkspacePanel({
 
       {!snapshot && !loading && !error ? (
         <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
-          <div className="text-sm font-medium text-slate-300">No trader knowledge snapshot yet.</div>
+          <div className="text-sm font-medium text-slate-300">No knowledge snapshot yet.</div>
           <div className="mt-1 text-xs text-slate-500">
-            Close paper trades and open Decision Reviews to build system memory.
+            Close paper trades and open Reviews to build system memory.
           </div>
         </div>
       ) : null}
@@ -16058,7 +16222,7 @@ function KnowledgeWorkspacePanel({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.18em] text-accent">
-                  Trader Knowledge
+                  Knowledge
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
                   What the system knows and does not know from the current snapshot.
@@ -16304,6 +16468,7 @@ const TradeJournalPanel = memo(function TradeJournalPanel({
   knowledgeLayerUpdatedAt,
   onOpenDecisionReview,
   onOpenDecisionReplay,
+  onOpenKnowledge,
   onRefreshKnowledgeLayer,
   onCopyText
 }: {
@@ -16333,6 +16498,7 @@ const TradeJournalPanel = memo(function TradeJournalPanel({
   knowledgeLayerUpdatedAt: number | null;
   onOpenDecisionReview: (payload: { reviewId?: string | null; positionLifecycleId?: string | null }) => boolean;
   onOpenDecisionReplay: (payload: { reviewId?: string | null; positionLifecycleId?: string | null }) => boolean;
+  onOpenKnowledge: () => boolean;
   onRefreshKnowledgeLayer: () => boolean;
   onCopyText: (text: string) => Promise<boolean>;
 }) {
@@ -16352,6 +16518,7 @@ const TradeJournalPanel = memo(function TradeJournalPanel({
         knowledgeLayerError={knowledgeLayerError}
         knowledgeLayerUpdatedAt={knowledgeLayerUpdatedAt}
         onOpenDecisionReplay={onOpenDecisionReplay}
+        onOpenKnowledge={onOpenKnowledge}
         onRefreshKnowledgeLayer={onRefreshKnowledgeLayer}
       />
 
@@ -16423,7 +16590,7 @@ const TradeJournalPanel = memo(function TradeJournalPanel({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              Decision Review Analytics
+              Review Analytics
             </div>
             <div className="mt-1 text-xs text-slate-500">
               {analyticsLoading
@@ -16469,7 +16636,7 @@ const TradeJournalPanel = memo(function TradeJournalPanel({
 
         {!hasJournalAnalytics(analytics) ? (
           <div className="rounded-md border border-dashed border-white/10 bg-black/20 px-4 py-6 text-center text-sm text-slate-400">
-            No decision review analytics yet.
+            No review analytics yet.
           </div>
         ) : (
           <div className="grid gap-3 xl:grid-cols-2">
@@ -16523,7 +16690,7 @@ const TradeJournalPanel = memo(function TradeJournalPanel({
               <tr>
                 <Cell colSpan={11}>
                   <span className="text-slate-500">
-                    {loading ? "Loading decision reviews..." : "No decision reviews match filters."}
+                    {loading ? "Loading reviews..." : "No reviews match filters."}
                   </span>
                 </Cell>
               </tr>
@@ -16631,7 +16798,7 @@ function JournalAnalyticsBucketTable({
     <section className="min-w-0 rounded-md border border-white/10 bg-black/20 p-3">
       <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-slate-500">{title}</div>
       {visibleRows.length === 0 ? (
-        <p className="text-xs text-slate-500">No decision reviews in this slice.</p>
+        <p className="text-xs text-slate-500">No reviews in this slice.</p>
       ) : (
         <div className="overflow-x-auto scrollbar-thin">
           <table className="min-w-full text-left text-xs">
@@ -16717,7 +16884,7 @@ function JournalEntryModal({
   const [notes, setNotes] = useState(entry?.notes ?? seed?.notes ?? "");
   const [tagsText, setTagsText] = useState((entry?.tags ?? seed?.tags ?? []).join(", "));
   const [localError, setLocalError] = useState<string | null>(null);
-  const title = entry ? "Edit Decision Review Entry" : "Create Decision Review Entry";
+  const title = entry ? "Edit Review Entry" : "Create Review Entry";
 
   const submit = () => {
     const normalizedSymbol = symbol.trim().toUpperCase();
@@ -16748,7 +16915,7 @@ function JournalEntryModal({
       <div className="w-full max-w-3xl rounded-lg border border-white/10 bg-panel p-4 shadow-panel">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.22em] text-accent">Decision Review</div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-accent">Review</div>
             <h2 className="mt-1 text-lg font-semibold text-white">{title}</h2>
           </div>
           <button
@@ -17462,7 +17629,7 @@ function SignalReplayModal({
       <div className="w-full max-w-5xl rounded-lg border border-white/10 bg-panel p-4 shadow-panel">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.22em] text-accent">Decision Replay</div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-accent">Replay</div>
             <h2 className="mt-1 text-lg font-semibold text-white">
               {signal ? `${signal.symbol} ${signal.type}` : "Replay details"}
             </h2>
@@ -17477,7 +17644,7 @@ function SignalReplayModal({
                 onClick={createJournalFromReplay}
                 className="rounded-md border border-positive/30 bg-positive/10 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.16em] text-positive transition hover:border-positive/60 hover:text-white"
               >
-                Create Decision Review Entry
+                Create Review Entry
               </button>
             ) : null}
             <button
@@ -17698,7 +17865,7 @@ function SignalReplayModal({
           </div>
         ) : (
           <div className="mt-4 rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center text-sm text-slate-400">
-            Open Decision Replay from Review to inspect context.
+            Open Replay from Review to inspect context.
           </div>
         )}
       </div>

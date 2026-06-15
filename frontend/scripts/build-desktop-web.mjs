@@ -4,6 +4,7 @@ import path from "node:path";
 
 const command = process.execPath;
 const nextCli = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
+const staleNextExportDir = path.join(process.cwd(), ".next", "export");
 const backendPort = process.env.BACKEND_PORT || readRootEnv("BACKEND_PORT") || "3001";
 const backendWsPath = process.env.BACKEND_WS_PATH || readRootEnv("BACKEND_WS_PATH") || "/ws";
 const backendWsUrl =
@@ -11,6 +12,7 @@ const backendWsUrl =
   `ws://127.0.0.1:${backendPort}${normalizeWsPath(backendWsPath)}`;
 
 console.log(`Desktop backend WebSocket: ${backendWsUrl}`);
+removeDirectoryWithRetries(staleNextExportDir);
 
 const result = spawnSync(command, [nextCli, "build"], {
   env: {
@@ -26,6 +28,29 @@ if (result.error) {
 }
 
 process.exit(result.status ?? 1);
+
+function removeDirectoryWithRetries(targetPath, retries = 5, delayMs = 150) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true, maxRetries: 0 });
+      return;
+    } catch (error) {
+      if (attempt === retries) {
+        throw error;
+      }
+
+      sleep(delayMs * (attempt + 1));
+    }
+  }
+}
+
+function sleep(durationMs) {
+  const end = Date.now() + durationMs;
+
+  while (Date.now() < end) {
+    // Busy-wait is acceptable here because this is a short-lived build script.
+  }
+}
 
 function readRootEnv(key) {
   const envPath = path.resolve(process.cwd(), "..", ".env");

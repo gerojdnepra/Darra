@@ -4,15 +4,14 @@ import type { ConflictState } from "../conflict/types";
 import type { ExecutionState } from "../execution/types";
 import type { MetaRegimeGovernorState } from "../meta-regime-governor/types";
 import type { RegimePredictionState } from "../regime-prediction/types";
-import type { RiskPositionState, RiskState } from "../risk/types";
+import { evaluateRiskAuthorityAccount } from "../risk/risk-authority";
+import type { RiskState } from "../risk/types";
 import type { BinanceAccountRiskSnapshot } from "../services/binance-account-stream";
 import type { SignalIntelligenceState } from "../signal-intelligence/types";
 import type { Bias, ScreenerRow } from "../types/messages";
 import type {
   PositionRiskCapacityItem,
-  PositionRiskKillSwitchState,
-  PositionRiskOrchestratorState,
-  PositionRiskStressLevel
+  PositionRiskOrchestratorState
 } from "./types";
 
 interface PositionRiskOrchestratorInput {
@@ -28,137 +27,8 @@ interface PositionRiskOrchestratorInput {
   rows: ScreenerRow[];
 }
 
-const toPct = (value: number | null | undefined, total: number | null | undefined): number => {
-  if (
-    value === null ||
-    value === undefined ||
-    total === null ||
-    total === undefined ||
-    !Number.isFinite(value) ||
-    !Number.isFinite(total) ||
-    total <= 0
-  ) {
-    return 0;
-  }
-
-  return round((value / total) * 100, 2);
-};
-
 const normalizeBias = (value: string | null | undefined): Bias =>
   value === "LONG" || value === "SHORT" ? value : "NEUTRAL";
-
-const average = (values: Array<number | null | undefined>): number | null => {
-  const numericValues = values.filter((value): value is number => typeof value === "number");
-  if (numericValues.length === 0) {
-    return null;
-  }
-
-  return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
-};
-
-const resolveStressLevel = (score: number): PositionRiskStressLevel => {
-  if (score >= 85) {
-    return "EXTREME";
-  }
-  if (score >= 65) {
-    return "HIGH";
-  }
-  if (score >= 35) {
-    return "MEDIUM";
-  }
-  return "LOW";
-};
-
-const resolveLiquidationScore = (position: RiskPositionState): number => {
-  const distancePct = position.distancePct;
-  const riskLevelPenalty =
-    position.riskLevel === "critical" ? 100 : position.riskLevel === "warning" ? 65 : 20;
-
-  if (distancePct === null || !Number.isFinite(distancePct)) {
-    return riskLevelPenalty;
-  }
-
-  const distancePenalty =
-    distancePct <= 1.5
-      ? 100
-      : distancePct <= 3
-        ? 88
-        : distancePct <= 5
-          ? 72
-          : distancePct <= 8
-            ? 50
-            : distancePct <= 12
-              ? 30
-              : 12;
-
-  return round(clamp(distancePenalty * 0.7 + riskLevelPenalty * 0.3, 0, 100), 2);
-};
-
-const resolveKillSwitchState = (input: {
-  accountRiskLoad: number;
-  criticalPositions: number;
-  warningPositions: number;
-  marginStressLevel: PositionRiskStressLevel;
-  liquidationStressLevel: PositionRiskStressLevel;
-  tradePermission: MetaRegimeGovernorState["tradePermission"];
-  marketMode: MetaRegimeGovernorState["marketMode"];
-}): PositionRiskKillSwitchState => {
-  if (
-    input.tradePermission === "BLOCKED" ||
-    input.marketMode === "EXTREME_UNCERTAINTY" ||
-    input.accountRiskLoad >= 92 ||
-    input.criticalPositions >= 2
-  ) {
-    return "EMERGENCY";
-  }
-
-  if (
-    input.accountRiskLoad >= 82 ||
-    input.marginStressLevel === "EXTREME" ||
-    input.liquidationStressLevel === "EXTREME"
-  ) {
-    return "REDUCE_RISK";
-  }
-
-  if (
-    input.accountRiskLoad >= 68 ||
-    input.tradePermission === "REDUCED" ||
-    input.criticalPositions >= 1
-  ) {
-    return "STOP_ADDING";
-  }
-
-  if (
-    input.accountRiskLoad >= 45 ||
-    input.warningPositions >= 2 ||
-    input.marginStressLevel === "HIGH" ||
-    input.liquidationStressLevel === "HIGH"
-  ) {
-    return "CAUTION";
-  }
-
-  return "NORMAL";
-};
-
-const resolveGlobalRiskMultiplier = (
-  killSwitchState: PositionRiskKillSwitchState,
-  overlayMultiplier: number,
-  riskBudgetLeft: number
-): number => {
-  const killSwitchMultiplier =
-    killSwitchState === "EMERGENCY"
-      ? 0
-      : killSwitchState === "REDUCE_RISK"
-        ? 0.2
-        : killSwitchState === "STOP_ADDING"
-          ? 0
-          : killSwitchState === "CAUTION"
-            ? 0.5
-            : 1;
-
-  const budgetMultiplier = clamp(riskBudgetLeft / 100, 0, 1);
-  return round(clamp(killSwitchMultiplier * clamp(overlayMultiplier, 0, 1) * budgetMultiplier, 0, 1), 4);
-};
 
 const buildCapacityReason = (input: {
   safeToAdd: boolean;
@@ -192,111 +62,25 @@ const buildCapacityReason = (input: {
 
 export class PositionRiskOrchestratorEngine {
   build(input: PositionRiskOrchestratorInput): PositionRiskOrchestratorState {
-    const walletBalanceUsd =
-      input.account.balances.walletBalanceUsd ?? input.risk.summary.walletBalanceUsd.value ?? 0;
-    const availableBalanceUsd =
-      input.account.balances.availableBalanceUsd ?? input.risk.summary.availableBalanceUsd.value ?? 0;
-    const marginBalanceUsd =
-      input.account.balances.marginBalanceUsd ?? input.risk.summary.marginBalanceUsd.value ?? 0;
-    const totalInitialMarginUsd =
-      input.account.balances.totalInitialMarginUsd ??
-      round(input.risk.positions.reduce((sum, position) => sum + position.initialMarginUsd, 0), 2);
-    const totalMaintMarginUsd =
-      input.account.balances.totalMaintMarginUsd ??
-      round(input.risk.positions.reduce((sum, position) => sum + position.maintMarginUsd, 0), 2);
-    const totalUnrealizedPnlUsd =
-      input.account.balances.totalUnrealizedPnlUsd ?? input.risk.summary.unrealizedPnlUsd.value ?? 0;
-
-    const marginUsagePct = round(
-      input.risk.summary.marginUsagePct.value ?? toPct(totalInitialMarginUsd, marginBalanceUsd),
-      2
-    );
-    const maintenanceMarginRatio = round(toPct(totalMaintMarginUsd, marginBalanceUsd), 2);
-    const availableBalancePct = round(toPct(availableBalanceUsd, marginBalanceUsd), 2);
-
-    const marginUsageScore = clamp((marginUsagePct / 100) * 100, 0, 100);
-    const maintenancePressureScore = clamp((maintenanceMarginRatio / 12) * 100, 0, 100);
-    const availableBalanceDepletionScore = clamp(100 - availableBalancePct, 0, 100);
-    const drawdownPressureScore =
-      totalUnrealizedPnlUsd < 0
-        ? clamp((Math.abs(totalUnrealizedPnlUsd) / Math.max(walletBalanceUsd || marginBalanceUsd || 1, 1)) * 100, 0, 100)
-        : 0;
-    const governorPenaltyScore = round(clamp(input.metaRegimeGovernor.systemDampener * 100, 0, 100), 2);
-
-    const minDistancePct =
-      input.risk.positions.length > 0
-        ? input.risk.positions.reduce<number | null>((closest, position) => {
-            if (position.distancePct === null || !Number.isFinite(position.distancePct)) {
-              return closest;
-            }
-            if (closest === null) {
-              return position.distancePct;
-            }
-            return Math.min(closest, position.distancePct);
-          }, null)
-        : null;
-    const avgDistancePct = average(input.risk.positions.map((position) => position.distancePct));
-    const criticalPositions = input.risk.positions.filter((position) => position.riskLevel === "critical").length;
-    const warningPositions = input.risk.positions.filter((position) => position.riskLevel === "warning").length;
-
-    const positionLiquidationScores = input.risk.positions.map(resolveLiquidationScore);
-    const averageLiquidationScore = average(positionLiquidationScores) ?? 0;
-    const liquidationStressScore = round(
-      clamp(
-        averageLiquidationScore +
-          criticalPositions * 12 +
-          warningPositions * 4,
-        0,
-        100
-      ),
-      2
-    );
-
-    const marginStressScore = round(
-      clamp(
-        marginUsageScore * 0.5 +
-          maintenancePressureScore * 0.3 +
-          availableBalanceDepletionScore * 0.2,
-        0,
-        100
-      ),
-      2
-    );
-
-    const accountRiskLoad = round(
-      clamp(
-        marginUsageScore * 0.25 +
-          maintenancePressureScore * 0.2 +
-          availableBalanceDepletionScore * 0.1 +
-          liquidationStressScore * 0.2 +
-          drawdownPressureScore * 0.1 +
-          governorPenaltyScore * 0.15,
-        0,
-        100
-      ),
-      2
-    );
-    const riskBudgetLeft = round(clamp(100 - accountRiskLoad, 0, 100), 2);
-
-    const marginStressLevel = resolveStressLevel(marginStressScore);
-    const liquidationStressLevel = resolveStressLevel(liquidationStressScore);
-
-    const killSwitchState = resolveKillSwitchState({
-      accountRiskLoad,
-      criticalPositions,
-      warningPositions,
-      marginStressLevel,
-      liquidationStressLevel,
+    const authority = evaluateRiskAuthorityAccount({
+      generatedAt: input.generatedAt,
+      risk: input.risk,
+      walletBalanceUsd: input.account.balances.walletBalanceUsd,
+      availableBalanceUsd: input.account.balances.availableBalanceUsd,
+      marginBalanceUsd: input.account.balances.marginBalanceUsd,
+      totalInitialMarginUsd: input.account.balances.totalInitialMarginUsd,
+      totalMaintMarginUsd: input.account.balances.totalMaintMarginUsd,
+      totalUnrealizedPnlUsd: input.account.balances.totalUnrealizedPnlUsd,
       tradePermission: input.metaRegimeGovernor.tradePermission,
-      marketMode: input.metaRegimeGovernor.marketMode
+      marketMode: input.metaRegimeGovernor.marketMode,
+      systemDampener: input.metaRegimeGovernor.systemDampener,
+      overlayMultiplier: input.metaRegimeGovernor.overlayMultiplier
     });
-    const safeToAddPosition =
-      killSwitchState === "NORMAL" || killSwitchState === "CAUTION";
-    const globalRiskMultiplier = resolveGlobalRiskMultiplier(
-      killSwitchState,
-      input.metaRegimeGovernor.overlayMultiplier,
-      riskBudgetLeft
-    );
+    const accountRiskLoad = authority.accountRiskLoad;
+    const riskBudgetLeft = authority.riskBudgetLeft;
+    const marginStressScore = authority.marginSafety.marginStressScore;
+    const safeToAddPosition = authority.canAddPosition;
+    const globalRiskMultiplier = authority.maxExposure.globalRiskMultiplier;
 
     const executionBySymbol = new Map(input.execution.map((item) => [item.symbol, item] as const));
     const allocationBySymbol = new Map(input.allocation.map((item) => [item.symbol, item] as const));
@@ -403,19 +187,19 @@ export class PositionRiskOrchestratorEngine {
       accountRiskLoad,
       riskBudgetLeft,
       marginStress: {
-        marginUsagePct,
-        maintenanceMarginRatio,
-        availableBalancePct,
-        stressLevel: marginStressLevel
+        marginUsagePct: authority.marginSafety.marginUsagePct,
+        maintenanceMarginRatio: authority.marginSafety.maintenanceMarginRatio,
+        availableBalancePct: authority.marginSafety.availableBalancePct,
+        stressLevel: authority.marginSafety.marginStressLevel
       },
       liquidationStress: {
-        minDistancePct: minDistancePct !== null ? round(minDistancePct, 3) : null,
-        avgDistancePct: avgDistancePct !== null ? round(avgDistancePct, 3) : null,
-        criticalPositions,
-        warningPositions,
-        stressLevel: liquidationStressLevel
+        minDistancePct: authority.liquidationSafety.minDistancePct,
+        avgDistancePct: authority.liquidationSafety.avgDistancePct,
+        criticalPositions: authority.liquidationSafety.criticalPositions,
+        warningPositions: authority.liquidationSafety.warningPositions,
+        stressLevel: authority.liquidationSafety.liquidationStressLevel
       },
-      killSwitchState,
+      killSwitchState: authority.killSwitch,
       safeToAddPosition,
       globalRiskMultiplier,
       positionCapacity

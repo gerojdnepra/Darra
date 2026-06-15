@@ -10,6 +10,8 @@ import type { DeltaFrameClientState } from "./delta-frame/types";
 import { doNotTradeEngine } from "./do-not-trade/do-not-trade-engine";
 import { ExecutionIntelligenceEngine } from "./execution/execution-intelligence-engine";
 import { compactFrameForTransport } from "./frame-transport/compact-frame-transport";
+import { decisionContextService } from "./decision/decision-context-service";
+import { decisionContextValidator } from "./decision/decision-context-validator";
 import { FrameTelemetryEngine, resolvePerformanceState } from "./frame-telemetry/frame-telemetry-engine";
 import type { FrameTelemetryState } from "./frame-telemetry/types";
 import { FundingEngine } from "./funding/funding-engine";
@@ -40,8 +42,8 @@ import { RiskEngine } from "./risk/risk-engine";
 import { RiskStore } from "./risk/risk-store";
 import { createRiskSnapshotMessage } from "./risk/ws-risk-publisher";
 import { positionSizingEngine } from "./risk/position-sizing-engine";
+import { buildRiskAuthoritySafeToAddResult } from "./risk/risk-authority";
 import { evaluateLiveReadiness } from "./safety/live-readiness";
-import { buildSafeToAddResult } from "./safety/order-safety";
 import { getExchangeFilterMap } from "./services/binance-exchange-filters";
 import { BinanceAccountStreamManager } from "./services/binance-account-stream";
 import { BinanceOrderService } from "./services/binance-order-service";
@@ -72,14 +74,15 @@ import { unifiedSignalRepository } from "./storage/unified-signal-repository";
 import { reconstructDecisionChain } from "./storage/decision-chain-repository";
 import { buildDecisionReplay } from "./storage/decision-replay-service";
 import { buildKnowledgeLayerSnapshot } from "./storage/knowledge-layer-service";
+import { orderPreflightRepository } from "./storage/order-preflight-repository";
 import { orderRepository } from "./storage/order-repository";
-import { tradeDecisionRepository } from "./storage/trade-decision-repository";
 import type { SignalStatisticsFilters } from "./storage/signal-statistics-service";
 import { closeSqlite, initializeSqlite } from "./storage/sqlite";
 import type { SignalIntelligenceState } from "./signal-intelligence/types";
 import type {
   BackendSettings,
   ClientMessage,
+  DecisionContextResponse,
   FrameTransportCapability,
   SafeToAddResult,
   ScreenerAlert,
@@ -310,6 +313,22 @@ const areSetsEqual = (left: Set<string>, right: Set<string>): boolean => {
   return true;
 };
 
+const normalizeText = (value: string | null | undefined): string | null => {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+};
+
+const normalizeActiveOrderPreflightIds = (
+  values: string[] | null | undefined
+): string[] =>
+  Array.from(
+    new Set(
+      (values ?? [])
+        .map((value) => normalizeText(value))
+        .filter((value): value is string => value !== null)
+    )
+  );
+
 const send = (socket: WebSocket, payload: ServerMessage | Record<string, unknown>): void => {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
@@ -329,6 +348,91 @@ const broadcastOrderMessage = (payload: ServerMessage): void => {
     }
 
     send(client.socket, payload);
+  }
+};
+
+const sendOrderPreflightInvalidation = (
+  socket: WebSocket,
+  payload: {
+    preflightId: string;
+    requestId?: string | null;
+    ticketKey?: string | null;
+    status: "USED" | "EXPIRED" | "INVALIDATED";
+    reason: string;
+    occurredAt: number;
+  }
+): void => {
+  send(socket, {
+    type: "order_preflight_invalidated",
+    generatedAt: payload.occurredAt,
+    payload
+  });
+};
+
+const syncClientOrderPreflights = (
+  socket: WebSocket,
+  client: ClientContext,
+  activeOrderPreflightIds: string[] | null | undefined
+): void => {
+  const now = Date.now();
+
+  for (const preflightId of normalizeActiveOrderPreflightIds(activeOrderPreflightIds)) {
+    const persisted = orderPreflightRepository.getById(preflightId);
+
+    if (!persisted) {
+      sendOrderPreflightInvalidation(socket, {
+        preflightId,
+        requestId: null,
+        ticketKey: null,
+        status: "INVALIDATED",
+        reason: "Preflight is no longer available on the backend. Request a new confirmation.",
+        occurredAt: now
+      });
+      continue;
+    }
+
+    const currentRecord =
+      persisted.status === "ACTIVE" && persisted.expiresAt <= now
+        ? orderPreflightRepository.expireActivePreflight(
+            persisted.id,
+            now,
+            "ACTIVE preflight expired before reconnect snapshot sync."
+          ) ?? persisted
+        : persisted;
+
+    if (currentRecord.status !== "ACTIVE") {
+      sendOrderPreflightInvalidation(socket, {
+        preflightId: currentRecord.id,
+        requestId: currentRecord.requestId,
+        ticketKey: null,
+        status: currentRecord.status,
+        reason:
+          currentRecord.reason ??
+          "Preflight is no longer valid. Request a new confirmation before submitting.",
+        occurredAt: currentRecord.usedAt ?? currentRecord.invalidatedAt ?? now
+      });
+      continue;
+    }
+
+    if (!client.orderService.hasRuntimeBoundPreflight(currentRecord.id, now)) {
+      const invalidated =
+        orderPreflightRepository.markInvalidated(
+          currentRecord.id,
+          now,
+          "Preflight was tied to an earlier backend session. Request a new confirmation."
+        ) ?? currentRecord;
+
+      sendOrderPreflightInvalidation(socket, {
+        preflightId: invalidated.id,
+        requestId: invalidated.requestId,
+        ticketKey: null,
+        status: invalidated.status === "ACTIVE" ? "INVALIDATED" : invalidated.status,
+        reason:
+          invalidated.reason ??
+          "Preflight was tied to an earlier backend session. Request a new confirmation.",
+        occurredAt: invalidated.invalidatedAt ?? now
+      });
+    }
   }
 };
 
@@ -636,7 +740,7 @@ const sendPositionSizing = async (
     risk
   });
   const generatedAt = Date.now();
-  const safeToAdd = buildSafeToAddResult({
+  const safeToAdd = buildRiskAuthoritySafeToAddResult({
     symbol,
     direction,
     side: direction === "long" ? "BUY" : direction === "short" ? "SELL" : null,
@@ -672,41 +776,65 @@ const sendTradeDecisionContextError = (
   });
 };
 
+const sendDecisionContextResponse = (
+  socket: WebSocket,
+  response: DecisionContextResponse
+): void => {
+  console.log("DECISION_PROTOCOL_RESPONSE", response);
+  send(socket, {
+    type: "decision_context_response",
+    generatedAt: Date.now(),
+    payload: response
+  });
+};
+
 const createTradeDecisionContextFromMessage = (
   socket: WebSocket,
+  client: ClientContext,
   payload: Extract<ClientMessage, { type: "create_trade_decision_context" }>["payload"]
 ): void => {
   try {
-    const context = tradeDecisionRepository.createTradeDecisionContext({
-      id: payload.id?.trim() || randomUUID(),
-      unifiedSignalId: payload.unifiedSignalId,
-      symbol: payload.symbol,
-      decision: payload.decision,
-      decisionReason: payload.decisionReason,
-      riskSnapshotRef: payload.riskSnapshotRef,
-      preflightId: payload.preflightId,
-      preflightNonce: payload.preflightNonce,
-      orderIntentId: payload.orderIntentId,
-      reviewCorrelationId: payload.reviewCorrelationId,
-      source: payload.source ?? "manual",
-      status: payload.status ?? "committed",
-      createdAt: payload.createdAt,
-      payload: payload.payload
-    });
+    const validation = decisionContextValidator.validateIncomingCommand(payload);
+    if (!validation.command) {
+      const response: DecisionContextResponse = {
+        status: "REJECTED",
+        reason: "DECISION_CONTEXT_VALIDATION_FAILED",
+        signalState: "MISSING",
+        validationErrors: validation.validationErrors
+      };
+      sendDecisionContextResponse(socket, response);
+      sendTradeDecisionContextError(socket, {
+        code: "TRADE_DECISION_CONTEXT_REJECTED",
+        message: validation.validationErrors.join(", ") || "Decision context command rejected."
+      });
+      return;
+    }
 
-    send(socket, {
-      type: "trade_decision_context_created",
-      generatedAt: Date.now(),
-      payload: context
+    const response = decisionContextService.buildTradeDecisionContext({
+      symbol: validation.command.symbol,
+      intent: validation.command.intent,
+      ...(validation.command.notes ? { notes: validation.command.notes } : {}),
+      ...(validation.command.preflightId ? { preflightId: validation.command.preflightId } : {}),
+      source: "manual",
+      risk: client.riskEngine.getSnapshot(),
+      account: client.accountStreamManager.getRiskSnapshot()
     });
+    sendDecisionContextResponse(socket, response);
   } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "TradeDecisionContext could not be created.";
+    const response: DecisionContextResponse = {
+      status: "REJECTED",
+      reason: "TRADE_DECISION_CONTEXT_CREATE_FAILED",
+      signalState: "MISSING",
+      validationErrors: [message]
+    };
+    sendDecisionContextResponse(socket, response);
     sendTradeDecisionContextError(socket, {
-      id: payload.id,
       code: "TRADE_DECISION_CONTEXT_CREATE_FAILED",
-      message:
-        error instanceof Error
-          ? error.message
-          : "TradeDecisionContext could not be created."
+      message
     });
   }
 };
@@ -750,7 +878,7 @@ const buildOrderPreflightSafeToAdd = async (input: {
     risk
   });
 
-  return buildSafeToAddResult({
+  return buildRiskAuthoritySafeToAddResult({
     symbol: input.symbol,
     direction,
     side: input.side,
@@ -2441,12 +2569,14 @@ wss.on("connection", (socket, request) => {
           client.forceSnapshotNext = true;
           sendClientFrame(clientId);
           sendRiskSnapshot(socket, client);
+          syncClientOrderPreflights(socket, client, message.payload?.activeOrderPreflightIds);
           break;
         case "request_snapshot":
           deltaFrameEngine.noteSnapshotRequest(client.deltaFrameState, message.payload);
           client.forceSnapshotNext = true;
           sendClientFrame(clientId);
           sendRiskSnapshot(socket, client);
+          syncClientOrderPreflights(socket, client, message.payload?.activeOrderPreflightIds);
           break;
         case "request_signal_statistics":
           sendSignalStatistics(socket, message.filters);
@@ -2476,7 +2606,7 @@ wss.on("connection", (socket, request) => {
           await sendPositionSizing(socket, client, message.payload);
           break;
         case "create_trade_decision_context":
-          createTradeDecisionContextFromMessage(socket, message.payload);
+          createTradeDecisionContextFromMessage(socket, client, message.payload);
           break;
         case "request_order_preflight": {
           const symbol = message.payload.symbol?.trim().toUpperCase() ?? "";
@@ -2524,18 +2654,43 @@ wss.on("connection", (socket, request) => {
             message.payload.quantity,
             message.payload.price ?? "",
             message.payload.stopPrice ?? "",
+            message.payload.stopLossPrice ?? "",
+            message.payload.takeProfitPrice ?? "",
             message.payload.reduceOnly === true ? "reduce" : "add",
             paperMode ? "paper" : "live"
           ].join("|");
           client.orderService.bindPreflight({
             preflightId,
             preflightNonce,
+            requestId: message.payload.requestId,
             ticketKey,
             paperMode,
             generatedAt,
             expiresAt,
-            safeToAddStatus: safeToAdd.status
+            safeToAddStatus: safeToAdd.status,
+            payload: {
+              ...message.payload,
+              symbol,
+              paperMode
+            }
           });
+          if (validation.accepted) {
+            orderPreflightRepository.createActivePreflight({
+              id: preflightId,
+              requestId: message.payload.requestId,
+              symbol,
+              side: message.payload.side,
+              type: message.payload.type,
+              quantity: message.payload.quantity,
+              normalizedQuantity: validation.normalizedQuantity,
+              price: message.payload.price ?? null,
+              normalizedPrice: validation.normalizedPrice,
+              notional: validation.notional,
+              decisionContextId: null,
+              createdAt: generatedAt,
+              expiresAt
+            });
+          }
 
           send(socket, {
             type: "order_preflight",
@@ -2554,6 +2709,20 @@ wss.on("connection", (socket, request) => {
               expiresAt
             }
           });
+          if (validation.accepted) {
+            send(socket, {
+              type: "order_preflight_persisted",
+              generatedAt,
+              payload: {
+                preflightId,
+                requestId: message.payload.requestId,
+                ticketKey,
+                status: "ACTIVE",
+                createdAt: generatedAt,
+                expiresAt
+              }
+            });
+          }
           break;
         }
         case "live_trading_control":
@@ -2858,6 +3027,7 @@ export const startScalpStationBackend = async (): Promise<void> => {
     phaseMessage = "bootstrapping market universe";
 
     initializeSqlite();
+    orderPreflightRepository.expireExpiredActivePreflights(Date.now());
     signalOutcomeTracker.recoverPendingOutcomes();
     await listenServer();
 
